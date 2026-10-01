@@ -1,0 +1,20 @@
+* text=auto
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sln text eol=crlf
+*.vcxproj text eol=crlf
+*.vcxproj.filters text eol=crlf
+*.png binary
+*.jpg binary
+*.dds binary
+*.fbx binary
+*.glb binary
+*.blend binary
+*.pmx binary
+*.vmd binary

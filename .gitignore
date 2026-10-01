@@ -1,0 +1,41 @@
+# Personal study notes
+/local-study/
+
+# MMD files are supplied locally by each team member
+/MMD/
+
+# Visual Studio local state
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Build outputs (keep source assets and third-party binaries trackable)
+/bin/
+/obj/
+/x64/
+/x86/
+**/Debug/
+**/Release/
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.ipch
+*.tlog
+
+# Package installation caches
+vcpkg_installed/
+
+# Local runtime and temporary files
+/logs/
+/captures/
+*.tmp
+*.swp
+Thumbs.db
+Desktop.ini
+.env
+.env.*
+!.env.example

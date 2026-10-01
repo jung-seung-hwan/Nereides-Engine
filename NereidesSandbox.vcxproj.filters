@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{D8F44E66-8785-43D9-ADE2-D54A2D2076CA}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx</Extensions>
+    </Filter>
+    <Filter Include="Source Files\Platform">
+      <UniqueIdentifier>{B29E71DD-46D3-41FA-84F2-D5B41DF118ED}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{92AE6FF4-DF2A-4C99-B3B3-850287A2AD1A}</UniqueIdentifier>
+      <Extensions>h;hpp</Extensions>
+    </Filter>
+    <Filter Include="Header Files\Platform">
+      <UniqueIdentifier>{466E8A72-2E17-4E98-B0D3-F872C33447C2}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\Main.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\Graphics\D3D11Renderer.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\Platform\Win32Window.cpp"><Filter>Source Files\Platform</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\Platform\Win32Window.h"><Filter>Header Files\Platform</Filter></ClInclude>
+    <ClInclude Include="src\Graphics\D3D11Renderer.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+</Project>
