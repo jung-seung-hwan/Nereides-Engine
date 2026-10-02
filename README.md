@@ -1,6 +1,6 @@
 # Nereides Engine
 
-Windows / C++ / Direct3D 11 기반의 새 엔진. Win32 창 생성과 DX11 초기화·화면 색 지우기를 구현하고 Debug/Release x64 실행을 검증했다.
+Windows / C++ / Direct3D 11 기반의 새 엔진. Win32 창, DX11 초기화·색 지우기와 정점 색상 삼각형 렌더링을 구현하고 Debug/Release x64 실행을 검증했다.
 
 - 실제 작업 경로: `C:\Users\User\Desktop\Nereides Engine` (사용자 확인 완료)
 - 참고 전용: `C:\Users\User\Documents\GitHub\SherlockEngine`
@@ -32,6 +32,8 @@ msbuild .\NereidesEngine.sln /p:Configuration=Release /p:Platform=x64
 & '.\bin\x64\Debug\NereidesSandbox.exe'
 ```
 
-`--smoke-test`를 전달하면 숨긴 창에서 DX11 초기화·렌더링 후 약 0.5초 뒤 정상 종료한다. 일반 실행은 1280×720 클라이언트 영역에 짙은 청색 화면을 표시한다. VS 디버거 출력 창에서 창 메시지, DX11 오류, Debug Layer와 종료 시 Live Object 보고를 확인할 수 있다. Debug 실행에는 Windows Graphics Tools의 DX11 디버그 레이어가 필요하다.
+`--smoke-test`를 전달하면 숨긴 창에서 DX11 초기화·렌더링 후 첫 프레임의 배경·삼각형 픽셀을 GPU readback으로 검사하고 약 0.5초 뒤 정상 종료한다. 일반 실행은 1280×720 클라이언트 영역에 짙은 청색 배경과 RGB 색상이 보간된 삼각형을 표시한다. VS 디버거 출력 창에서 창 메시지, 셰이더 컴파일 오류, DX11 오류, Debug Layer와 종료 시 Live Object 보고를 확인할 수 있다. Debug 실행에는 Windows Graphics Tools의 DX11 디버그 레이어가 필요하다.
+
+첫 삼각형 HLSL은 `src/Graphics/TriangleShaders.h`에 포함되어 초기화 때 컴파일한다. 추가 링크 라이브러리는 Windows SDK의 `d3dcompiler.lib`다. 카메라·변환 행렬·깊이 버퍼·텍스처는 아직 도입하지 않았다.
 
 실행 파일은 `bin/x64/Debug` 또는 `bin/x64/Release`, 중간 파일은 `obj`에 생성되며 Git에서 제외한다. 이전 CMake 방식의 `build` 폴더는 정리했다.

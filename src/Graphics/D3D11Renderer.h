@@ -18,17 +18,23 @@ public:
 
     bool Initialize(HWND window, std::uint32_t width, std::uint32_t height);
     bool Resize(std::uint32_t width, std::uint32_t height);
-    bool Render();
+    bool Render(bool verifyFrame = false);
     void Shutdown() noexcept;
 
 private:
     bool CreateBackBuffer();
+    bool CreateTriangle();
+    bool VerifyTriangleFrame();
     bool Check(HRESULT result, const wchar_t* operation);
 
     Microsoft::WRL::ComPtr<ID3D11Device> m_device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> m_swapChain;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_renderTarget;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_vertexBuffer;
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> m_pixelShader;
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> m_inputLayout;
     std::uint32_t m_width = 0;
     std::uint32_t m_height = 0;
 };

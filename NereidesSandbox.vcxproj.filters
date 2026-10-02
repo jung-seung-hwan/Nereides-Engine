@@ -24,5 +24,6 @@
   <ItemGroup>
     <ClInclude Include="src\Platform\Win32Window.h"><Filter>Header Files\Platform</Filter></ClInclude>
     <ClInclude Include="src\Graphics\D3D11Renderer.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\Graphics\TriangleShaders.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
 </Project>

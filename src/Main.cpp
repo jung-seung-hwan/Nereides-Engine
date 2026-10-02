@@ -14,6 +14,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
 
     const auto start = std::chrono::steady_clock::now();
     int exitCode = 0;
+    bool frameVerified = false;
     while (window.ProcessMessages(exitCode))
     {
         if (window.IsMinimized() || window.Width() == 0 || window.Height() == 0)
@@ -21,8 +22,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
             WaitMessage();
             continue;
         }
-        if (!renderer.Resize(window.Width(), window.Height()) || !renderer.Render())
+        if (!renderer.Resize(window.Width(), window.Height()) || !renderer.Render(smokeTest && !frameVerified))
             return 1;
+        frameVerified = true;
         if (smokeTest && std::chrono::steady_clock::now() - start >= std::chrono::milliseconds(500))
             PostMessageW(window.Handle(), WM_CLOSE, 0, 0);
     }

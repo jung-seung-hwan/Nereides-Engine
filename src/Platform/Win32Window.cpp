@@ -54,7 +54,7 @@ bool Win32Window::Create(HINSTANCE instance, int showCommand)
         Destroy();
         return false;
     }
-    m_window = CreateWindowExW(0, kClassName, L"Nereides Engine | Step 2 - DX11",
+    m_window = CreateWindowExW(0, kClassName, L"Nereides Engine | Step 3 - Triangle",
         style, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left,
         bounds.bottom - bounds.top, nullptr, nullptr, instance, this);
     if (!m_window)
