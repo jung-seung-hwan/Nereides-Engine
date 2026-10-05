@@ -14,7 +14,7 @@
 # Build outputs (keep source assets and third-party binaries trackable)
 /bin/
 /obj/
-/assets/kraken_tentacle/
+/assets/
 /x64/
 /x86/
 **/Debug/
