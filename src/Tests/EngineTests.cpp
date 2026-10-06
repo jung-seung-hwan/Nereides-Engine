@@ -15,6 +15,7 @@
 #include "Graphics/TextureCache.h"
 #include "Editor/EditHistory.h"
 #include "Editor/EditorGeometry.h"
+#include "Editor/Console.h"
 #include <fstream>
 #include <functional>
 #include <cmath>
@@ -379,6 +380,30 @@ void TestSceneIO()
     Require(failed && loaded.scene.Find(loaded.player), "failed load preserves live scene");
     std::filesystem::remove(path);
 }
+void TestConsoleRecords()
+{
+    const auto before = Log::Entries();
+    const auto boundary = before.empty() ? 0 : before.back().id;
+    const auto first = Log::Write(LogLevel::Error, "Repeated test: Missing 모델.FBX");
+    Log::Write(LogLevel::Info, "Other test information");
+    const auto last = Log::Write(LogLevel::Error, "Repeated test: Missing 모델.FBX");
+    Log::Write(LogLevel::Warning, "Repeated test: Missing 모델.FBX");
+    const auto entries = Log::Entries();
+    auto grouped = FilterLogs(entries, boundary, 0, "missing", true, first);
+    Require(grouped.size() == 2, "console groups by severity and message");
+    Require(grouped[0].count == 2 && grouped[0].entry.id == last && grouped[0].focused,
+            "repeat group retains latest timestamp and reveal target");
+    Require(FilterLogs(entries, boundary, 3, "MODEL", false).empty(),
+            "search preserves Unicode bytes");
+    Require(FilterLogs(entries, boundary, 3, ".fbx", false).size() == 2,
+            "severity and case-insensitive search combine");
+    Require(FilterLogs(entries, last, 0, "", true).size() == 1,
+            "clear boundary admits only later records");
+    Require(entries.back().time.size() == 23 && first > boundary && last > first,
+            "logs carry wall time and stable monotonic ids");
+    Require(Log::Format(entries.back()).find("[Warning]") != std::string::npos,
+            "clipboard and file format includes severity");
+}
 void TestEditorHistory()
 {
     Scene scene;
@@ -546,6 +571,7 @@ int RunEngineTests()
         TestCollision();
         TestSceneIO();
         TestEditorHistory();
+        TestConsoleRecords();
         TestTransitionsAndEvents();
         Log::Write(LogLevel::Info,
                    "Engine tests PASS: input, time, scene, render input, animation, model cache, "

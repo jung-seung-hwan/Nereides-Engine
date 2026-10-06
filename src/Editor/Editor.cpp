@@ -153,7 +153,7 @@ bool Editor::Initialize(HWND window, D3D11Renderer& renderer)
     m_renderer = &renderer;
     m_textures.SetDevice(renderer.Device());
     m_initialized = true;
-    RefreshAssets();
+    m_assets.SetRoot("assets");
     return true;
 }
 void Editor::Message(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -167,27 +167,6 @@ bool Editor::RequestClose()
         return true;
     m_closeRequested = true;
     return false;
-}
-void Editor::RefreshAssets()
-{
-    m_assets.clear();
-    std::error_code error;
-    if (!std::filesystem::exists("assets", error))
-        return;
-    for (std::filesystem::recursive_directory_iterator
-             it("assets", std::filesystem::directory_options::skip_permission_denied, error),
-         end;
-         it != end && !error; it.increment(error))
-    {
-        if (!it->is_regular_file(error))
-            continue;
-        auto ext = it->path().extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c) { return char(std::tolower(c)); });
-        if (ext == ".fbx" || ext == ".obj" || ext == ".gltf" || ext == ".glb")
-            m_assets.push_back(it->path());
-    }
-    std::sort(m_assets.begin(), m_assets.end());
 }
 void Editor::Focus(const Scene& scene, ObjectId id)
 {
@@ -206,11 +185,13 @@ void Editor::Import(Scene& scene, const std::filesystem::path& path, const XMFLO
     if (model->parts.empty())
         throw std::runtime_error("The file contains no mesh");
     auto& object = scene.Create(Utf8(path.stem()));
+    m_assets.Remember(path, model->parts.size(), model->clips.size());
     object.Add<ModelComponent>(std::move(model));
     object.transform.position = position ? *position : m_focus;
     m_selected = object.Id();
     Focus(scene, m_selected);
     m_dirty = true;
+    m_errorLog = 0;
     m_status = "Placed " + Utf8(path.filename()) + ". F focuses the selection.";
 }
 void Editor::ApplyView(RenderFrame& frame) const
@@ -234,7 +215,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     }
     auto report = [&](const std::exception& e) {
         m_status = e.what();
-        Log::Write(LogLevel::Error, m_status);
+        m_errorLog = Log::Write(LogLevel::Error, m_status);
     };
     auto commit = [&] {
         m_history.Commit(SceneIO::Encode(scene, cameraId, player, camera));
@@ -308,10 +289,11 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     const auto display = ImGui::GetIO().DisplaySize;
     const float left = std::clamp(display.x * .19f, 170.f, 250.f);
     const float right = std::clamp(display.x * .26f, 240.f, 330.f);
-    const float bottom = std::clamp(display.y * .25f, 135.f, 210.f);
+    m_assetsHeight = std::clamp(m_assetsHeight, 210.f, std::max(210.f, display.y - 264.f));
+    const float bottom = m_assetsHeight;
     const float top = 64;
     const float middle = std::max(120.f, display.x - left - right);
-    const float height = std::max(120.f, display.y - top - bottom);
+    const float height = std::max(120.f, display.y - top - bottom - 6);
     const auto& io = ImGui::GetIO();
     const bool shortcuts = !io.WantTextInput && !ImGuizmo::IsUsing() &&
                            !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
@@ -372,6 +354,15 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     else
         ImGui::TextColored(m_dirty ? ImVec4(1, .73f, .3f, 1) : ImVec4(.5f, .85f, .65f, 1), "%s",
                            m_dirty ? "Unsaved changes" : (m_hasScenePath ? "Saved" : "Untitled"));
+    ImGui::SameLine();
+    const auto consoleLabel =
+        "Console (" + std::to_string(m_console.UnreadErrors()) + " new errors)";
+    if (ImGui::Button(consoleLabel.c_str()))
+        m_console.open = !m_console.open;
+    {
+        const auto a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        m_consoleButton = {(a.x + b.x) * .5f, (a.y + b.y) * .5f};
+    }
     if (ImGui::BeginPopupModal("Open scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(m_dirty ? "Save your changes before opening another scene?"
@@ -607,9 +598,6 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                        m_hasScenePath ? m_scenePath : "Untitled - choose a file on first Save");
     ImGui::SeparatorText("Status");
     ImGui::TextWrapped("%s", m_status.c_str());
-    if (ImGui::CollapsingHeader("Log"))
-        for (const auto& line : Log::Recent())
-            ImGui::TextWrapped("%s", line.c_str());
     if (ImGui::CollapsingHeader("Transition preview"))
     {
         ImGui::InputText("Clip", m_clipPath, sizeof(m_clipPath));
@@ -635,60 +623,62 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     }
     ImGui::End();
 
-    Panel("Assets", {0, top + height}, {left + middle, bottom});
-    ImGui::BeginDisabled(m_playing);
-    if (ImGui::Button("Browse model..."))
-        try
-        {
-            const auto path = ChooseFile(m_window, false, true);
-            if (!path.empty())
-                Import(scene, path);
-        }
-        catch (const std::exception& e)
-        {
-            report(e);
-        }
-    ImGui::SameLine();
-    if (ImGui::Button("Refresh"))
-        RefreshAssets();
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(180);
-    ImGui::InputTextWithHint("##filter", "Find model", m_assetFilter, sizeof(m_assetFilter));
-    ImGui::SameLine();
-    ImGui::TextUnformatted("Double-click to place");
-    if (m_assets.empty())
-        ImGui::TextWrapped("No models in assets/. Browse a local FBX, OBJ, glTF or GLB.");
-    ImGui::BeginChild("Model files", {0, 0});
-    for (const auto& path : m_assets)
-    {
-        const auto text = Utf8(path);
-        std::string lowered = text, filter = m_assetFilter;
-        auto lower = [](unsigned char c) { return char(std::tolower(c)); };
-        std::transform(lowered.begin(), lowered.end(), lowered.begin(), lower);
-        std::transform(filter.begin(), filter.end(), filter.begin(), lower);
-        if (lowered.find(filter) == std::string::npos)
-            continue;
-        if (ImGui::Selectable(text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
-            ImGui::IsMouseDoubleClicked(0))
+    ImGui::SetNextWindowPos({0, top + height});
+    ImGui::SetNextWindowSize({left + middle, 6});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(0, 0));
+    ImGui::Begin("##AssetSplitter", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::InvisibleButton("Resize assets", {left + middle, 6});
+    m_splitter = {(left + middle) * .5f, top + height + 3};
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+    if (ImGui::IsItemActive())
+        m_assetsHeight -= io.MouseDelta.y;
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    Panel("Assets", {0, top + height + 6}, {left + middle, bottom});
+    ImGui::BeginChild("Asset workspace", {0, m_errorLog ? -29.f : 0.f});
+    m_assets.Draw(
+        m_playing,
+        [&]() -> std::filesystem::path {
+            try
+            {
+                return ChooseFile(m_window, false, true);
+            }
+            catch (const std::exception& e)
+            {
+                report(e);
+                return {};
+            }
+        },
+        [&](const std::filesystem::path& path) {
             try
             {
                 Import(scene, path);
             }
             catch (const std::exception& e)
             {
-                report(e);
+                const auto message =
+                    std::runtime_error("Model import failed: " + Utf8(path) + "\n" + e.what());
+                report(message);
             }
-        if (ImGui::BeginDragDropSource())
-        {
-            ImGui::SetDragDropPayload("NEREIDES_MODEL", text.c_str(), text.size() + 1);
-            ImGui::TextUnformatted(Utf8(path.filename()).c_str());
-            ImGui::EndDragDropSource();
-        }
-    }
+        });
     ImGui::EndChild();
-    ImGui::EndDisabled();
+    if (m_errorLog)
+    {
+        ImGui::TextColored({1, .4f, .35f, 1}, "Operation failed.");
+        ImGui::SameLine();
+        if (ImGui::Button("View log"))
+            m_console.Reveal(m_errorLog);
+        const auto a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        m_viewLogButton = {(a.x + b.x) * .5f, (a.y + b.y) * .5f};
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Dismiss"))
+            m_errorLog = 0;
+    }
     ImGui::End();
-
     Panel("Scene", {left, top}, {middle, height});
     ImGui::BeginDisabled(m_playing);
     const char* tools[] = {"Move (W)", "Rotate (E)", "Scale (R)"};
@@ -745,7 +735,9 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             }
             catch (const std::exception& e)
             {
-                report(e);
+                report(std::runtime_error(std::string("Model import failed: ") +
+                                          static_cast<const char*>(payload->Data) + "\n" +
+                                          e.what()));
             }
         ImGui::EndDragDropTarget();
     }
@@ -804,7 +796,8 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             const ImGuizmo::OPERATION operations[] = {ImGuizmo::TRANSLATE, ImGuizmo::ROTATE,
                                                       ImGuizmo::SCALE};
             float snap[] = {m_snapStep, m_snapStep, m_snapStep};
-            ImGuizmo::Enable(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
+            ImGuizmo::Enable(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
+                             (hovered || ImGuizmo::IsUsing()));
             if (ImGuizmo::Manipulate(&m_view._11, &m_projection._11, operations[m_operation],
                                      m_local ? ImGuizmo::LOCAL : ImGuizmo::WORLD, &world._11,
                                      nullptr, m_snap ? snap : nullptr))
@@ -839,6 +832,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         }
     time.paused = !m_playing || time.paused;
     time.pausePresentation = false;
+    m_console.Draw();
     input.Capture(!m_playing || !hovered || io.WantTextInput, !m_playing || !hovered);
     (void)collision;
     return replaced;

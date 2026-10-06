@@ -2,6 +2,8 @@
 
 2026-10-06. 완료 기준은 **모델 탐색 → 배치 → 수정 → 복구 → 저장 → 다시 열기**다. 06단계의 최소 기능 검증을 팀원이 사용할 수 있는 편집 흐름으로 확장한다.
 
+후속 변경: 현재 Assets의 폴더 탐색·선택 배치와 별도 Console은 [11단계 안내](11-assets-console.md)를 따른다. 아래 화면은 10단계 당시 기록이며, 현재 Browse...는 파일 선택 후 Place in Scene으로 배치한다.
+
 ## 실행과 화면
 
 Visual Studio에서 F5 또는 bin/x64/Release/NereidesSandbox.exe를 실행한다. 기본 모드는 Edit이며 예제 객체가 자동으로 움직이지 않는다.

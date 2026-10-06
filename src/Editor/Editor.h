@@ -5,6 +5,8 @@
 #include "Graphics/TextureCache.h"
 #include "Graphics/D3D11Renderer.h"
 #include "Editor/EditHistory.h"
+#include "Editor/AssetBrowser.h"
+#include "Editor/Console.h"
 #include <Windows.h>
 #include <d3d11.h>
 struct ImDrawList;
@@ -49,9 +51,11 @@ private:
     DirectX::XMFLOAT2 m_viewOrigin{}, m_viewSize{640, 480};
     DirectX::XMFLOAT4X4 m_view{}, m_projection{};
     ImDrawList* m_sceneDrawList = nullptr;
-    std::vector<std::filesystem::path> m_assets;
-    char m_assetFilter[128]{};
-    void RefreshAssets();
+    AssetBrowser m_assets;
+    Console m_console;
+    float m_assetsHeight = 260;
+    std::uint64_t m_errorLog = 0;
+    DirectX::XMFLOAT2 m_consoleButton{}, m_viewLogButton{}, m_splitter{};
     void Focus(const Scene&, ObjectId);
     void Import(Scene&, const std::filesystem::path&, const DirectX::XMFLOAT3* position = nullptr);
     ObjectId m_selected = 0;
@@ -61,7 +65,6 @@ private:
     Transition m_transition;
     std::string m_status = "Ready";
     char m_scenePath[512] = "data/scenes/sandbox.json";
-    char m_modelPath[512] = "assets/black_sword/model/black_sword_all_clips.fbx";
     char m_clipPath[512] = "data/presentation/preview.json";
 };
 } // namespace nereides

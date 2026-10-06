@@ -13,7 +13,81 @@ struct EditorTestAccess
     {
         strcpy_s(editor.m_scenePath, "logs/editor-workflow-scene.json");
         editor.m_hasScenePath = true;
-        editor.m_assets = {model};
+        editor.m_assets.SetRoot(model.parent_path());
+    }
+    static DirectX::XMFLOAT2 AssetRow(const Editor& editor, const std::filesystem::path& path)
+    {
+        return editor.m_assets.m_rowCenters.at(std::filesystem::absolute(path).lexically_normal());
+    }
+    static DirectX::XMFLOAT2 PlaceButton(const Editor& editor)
+    {
+        return editor.m_assets.m_placeButton;
+    }
+    static DirectX::XMFLOAT2 ViewLogButton(const Editor& editor)
+    {
+        return editor.m_viewLogButton;
+    }
+    static DirectX::XMFLOAT2 ConsoleButton(const Editor& editor)
+    {
+        return editor.m_consoleButton;
+    }
+    static DirectX::XMFLOAT2 ClearLogsButton(const Editor& editor)
+    {
+        return editor.m_console.m_clearButton;
+    }
+    static DirectX::XMFLOAT2 ErrorFilter(const Editor& editor)
+    {
+        return editor.m_console.m_errorFilter;
+    }
+    static DirectX::XMFLOAT2 Splitter(const Editor& editor)
+    {
+        return editor.m_splitter;
+    }
+    static DirectX::XMFLOAT2 BackButton(const Editor& editor)
+    {
+        return editor.m_assets.m_backButton;
+    }
+    static DirectX::XMFLOAT2 AssetSearch(const Editor& editor)
+    {
+        return editor.m_assets.m_searchBox;
+    }
+    static std::vector<AssetFile> Files(const Editor& editor)
+    {
+        return editor.m_assets.Visible();
+    }
+    static std::filesystem::path Folder(const Editor& editor)
+    {
+        return editor.m_assets.m_folder;
+    }
+    static void Refresh(Editor& editor)
+    {
+        editor.m_assets.Refresh();
+    }
+    static bool HasMetadata(const Editor& editor, const std::filesystem::path& path)
+    {
+        const auto found =
+            editor.m_assets.m_known.find(std::filesystem::absolute(path).lexically_normal());
+        return found != editor.m_assets.m_known.end() && found->second.meshes > 0;
+    }
+    static bool ConsoleVisible(const Editor& editor)
+    {
+        return editor.m_console.open;
+    }
+    static std::uint64_t SelectedLog(const Editor& editor)
+    {
+        return editor.m_console.m_selected.id;
+    }
+    static std::uint64_t ErrorLog(const Editor& editor)
+    {
+        return editor.m_errorLog;
+    }
+    static std::uint64_t ClearedThrough(const Editor& editor)
+    {
+        return editor.m_console.m_clearThrough;
+    }
+    static int LogFilter(const Editor& editor)
+    {
+        return editor.m_console.m_level;
     }
     static ObjectId Selection(const Editor& editor)
     {
@@ -36,8 +110,8 @@ int RunEditorWorkflowTest()
             if (!value)
                 throw std::runtime_error(message);
         };
-        const auto modelPath = std::filesystem::path(L"logs/편집 검증 모델.obj");
-        std::filesystem::create_directories("logs");
+        const auto modelPath = std::filesystem::path(L"logs/editor-assets-test/편집 검증 모델.obj");
+        std::filesystem::create_directories(modelPath.parent_path());
         {
             std::ofstream model(modelPath);
             model << "o TestModel\nv -1 0 0\nv 1 0 0\nv 0 2 0\nf 1 2 3\n";
@@ -126,8 +200,10 @@ int RunEditorWorkflowTest()
         shortcut(ImGuiKey_Z);
         require(SceneIO::Encode(scene, cameraId, player, camera) == moved, "UI undo deletion");
         // Import through the asset list, including a Unicode source path.
-        click(130, 608);
-        click(130, 608);
+        const auto assetPoint = EditorTestAccess::AssetRow(editor, modelPath);
+        click(assetPoint.x, assetPoint.y);
+        require(scene.Objects().size() == 3, "single asset click only selects");
+        click(assetPoint.x, assetPoint.y);
         require(scene.Objects().size() == 4, "UI double-click imports model");
         const auto selected = EditorTestAccess::Selection(editor);
         require(scene.Find(selected)->Get<ModelComponent>() != nullptr,
@@ -139,11 +215,11 @@ int RunEditorWorkflowTest()
                     imported,
                 "Unicode model path survives scene round trip");
         // Drag the same asset into the Scene, then undo the new placement.
-        io.AddMousePosEvent(130, 608);
+        io.AddMousePosEvent(assetPoint.x, assetPoint.y);
         frame();
         io.AddMouseButtonEvent(0, true);
         frame();
-        io.AddMousePosEvent(145, 610);
+        io.AddMousePosEvent(assetPoint.x + 15, assetPoint.y + 2);
         frame();
         io.AddMousePosEvent(680, 440);
         frame();
@@ -194,6 +270,98 @@ int RunEditorWorkflowTest()
         require(!editor.Playing(), "UI stop");
         require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
                 "Stop restores authored state after runtime changes");
+        auto clickPoint = [&](DirectX::XMFLOAT2 p) { click(p.x, p.y); };
+        // Folder navigation, scoped search and explicit placement use the same real UI.
+        const auto folder = modelPath.parent_path() / "motions";
+        std::filesystem::create_directories(folder);
+        const auto nested = folder / "Nested.FBX";
+        {
+            std::ofstream fixture(nested);
+            fixture << "not a valid model";
+        }
+        EditorTestAccess::Refresh(editor);
+        frame();
+        auto folderPoint = EditorTestAccess::AssetRow(editor, folder);
+        clickPoint(folderPoint);
+        clickPoint(folderPoint);
+        require(EditorTestAccess::Folder(editor) ==
+                    std::filesystem::absolute(folder).lexically_normal(),
+                "asset folder double click navigates");
+        clickPoint(EditorTestAccess::BackButton(editor));
+        require(EditorTestAccess::Folder(editor) ==
+                    std::filesystem::absolute(modelPath.parent_path()).lexically_normal(),
+                "asset Back restores folder");
+        clickPoint(EditorTestAccess::AssetSearch(editor));
+        io.AddInputCharactersUTF8("nested");
+        frame();
+        require(EditorTestAccess::Files(editor).size() == 1, "asset search includes subfolders");
+        shortcut(ImGuiKey_A);
+        io.AddInputCharactersUTF8("no-such-file");
+        frame();
+        require(EditorTestAccess::Files(editor).empty(), "asset search empty result");
+        shortcut(ImGuiKey_A);
+        key(ImGuiKey_Backspace);
+        key(ImGuiKey_Escape);
+        frame();
+        auto modelPoint = EditorTestAccess::AssetRow(editor, modelPath);
+        clickPoint(modelPoint);
+        const auto countBeforePlace = scene.Objects().size();
+        clickPoint(EditorTestAccess::PlaceButton(editor));
+        require(scene.Objects().size() == countBeforePlace + 1 &&
+                    EditorTestAccess::HasMetadata(editor, modelPath),
+                "Place button imports selected file and records real metadata");
+        shortcut(ImGuiKey_Z);
+        // Selecting an invalid model should preserve the scene and link to its exact error.
+        folderPoint = EditorTestAccess::AssetRow(editor, folder);
+        clickPoint(folderPoint);
+        clickPoint(folderPoint);
+        clickPoint(EditorTestAccess::AssetRow(editor, nested));
+        const auto beforeFailure = SceneIO::Encode(scene, cameraId, player, camera);
+        clickPoint(EditorTestAccess::PlaceButton(editor));
+        frame();
+        const auto failedId = EditorTestAccess::ErrorLog(editor);
+        require(failedId && !EditorTestAccess::ConsoleVisible(editor),
+                "import failure badges without stealing focus");
+        require(SceneIO::Encode(scene, cameraId, player, camera) == beforeFailure,
+                "failed import preserves scene");
+        clickPoint(EditorTestAccess::ViewLogButton(editor));
+        frame();
+        require(EditorTestAccess::ConsoleVisible(editor) &&
+                    EditorTestAccess::SelectedLog(editor) == failedId,
+                "View log opens Console and selects matching error");
+        renderer.RequestCapture("captures/editor-console.bmp");
+        frame();
+        clickPoint(EditorTestAccess::ErrorFilter(editor));
+        require(EditorTestAccess::LogFilter(editor) == 3, "Console Error filter");
+        const auto logSize = std::filesystem::file_size("logs/engine.log");
+        clickPoint(EditorTestAccess::ClearLogsButton(editor));
+        require(EditorTestAccess::ClearedThrough(editor) >= failedId &&
+                    std::filesystem::file_size("logs/engine.log") == logSize,
+                "Clear view retains disk log");
+        const auto newError = Log::Write(LogLevel::Error, "Console test new error after clear");
+        frame();
+        require(FilterLogs(Log::Entries(), EditorTestAccess::ClearedThrough(editor), 3, "", true)
+                            .size() == 1 &&
+                    newError > failedId,
+                "new errors remain visible after clear");
+        clickPoint(EditorTestAccess::ConsoleButton(editor));
+        require(!EditorTestAccess::ConsoleVisible(editor), "Console toggles independently");
+        const auto divider = EditorTestAccess::Splitter(editor);
+        io.AddMousePosEvent(divider.x, divider.y);
+        frame();
+        io.AddMouseButtonEvent(0, true);
+        frame();
+        io.AddMousePosEvent(divider.x, divider.y - 40);
+        frame();
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        frame();
+        require(EditorTestAccess::Splitter(editor).y < divider.y - 20,
+                "Assets height resizes by dragging divider");
+        std::filesystem::remove(nested);
+        std::filesystem::remove(folder);
+        // Refresh after deleting the test fixture, then verify the existing close guard.
+        EditorTestAccess::Refresh(editor);
         require(editor.RequestClose(), "saved document closes without prompt");
         click(35, 106);
         require(!editor.RequestClose(), "unsaved edit blocks window close");
@@ -203,8 +371,12 @@ int RunEditorWorkflowTest()
         renderer.SetOverlay({});
         std::filesystem::remove("logs/editor-workflow-scene.json");
         std::filesystem::remove(modelPath);
-        Log::Write(LogLevel::Info, "Editor workflow PASS: place, Z edit, undo, redo, delete, asset "
-                                   "import, Unicode, focus, zoom, save, play/restore, close guard");
+        std::filesystem::remove(modelPath.parent_path());
+        Log::Write(LogLevel::Info,
+                   "Editor workflow PASS: place, Z edit, undo, redo, delete, asset "
+                   "import, Unicode, focus, zoom, save, play/restore, close guard, "
+                   "folders, search, explicit placement, Console reveal/filter/clear, "
+                   "failed import preservation, Assets resize");
         return 0;
     }
     catch (const std::exception& e)

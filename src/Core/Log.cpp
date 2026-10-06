@@ -4,32 +4,56 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <deque>
+#include <cstdio>
 namespace nereides
 {
 namespace
 {
 std::mutex logMutex;
-std::vector<std::string> recent;
+std::deque<LogEntry> recent;
+std::uint64_t nextId = 1;
 } // namespace
-void Log::Write(LogLevel level, std::string_view message)
+const char* Log::Label(LogLevel level)
+{
+    return level == LogLevel::Error ? "Error" : level == LogLevel::Warning ? "Warning" : "Info";
+}
+std::string Log::Format(const LogEntry& entry)
+{
+    return entry.time + " [" + Label(entry.level) + "] " + entry.message;
+}
+std::uint64_t Log::Write(LogLevel level, std::string_view message)
 {
     const std::lock_guard lock(logMutex);
-    const char* label = level == LogLevel::Error     ? "error"
-                        : level == LogLevel::Warning ? "warning"
-                                                     : "info";
-    const std::string line = "[" + std::string(label) + "] " + std::string(message) + "\n";
+    SYSTEMTIME now{};
+    GetLocalTime(&now);
+    char timestamp[40]{};
+    std::snprintf(timestamp, sizeof(timestamp), "%04u-%02u-%02u %02u:%02u:%02u.%03u", now.wYear,
+                  now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+    LogEntry entry{nextId++, level, timestamp, std::string(message)};
+    const auto id = entry.id;
+    const auto line = Format(entry) + "\n";
     OutputDebugStringA(line.c_str());
-    recent.push_back(line);
-    if (recent.size() > 100)
-        recent.erase(recent.begin());
+    recent.push_back(std::move(entry));
+    if (recent.size() > 1000)
+        recent.pop_front();
     std::error_code error;
     std::filesystem::create_directories("logs", error);
     std::ofstream output("logs/engine.log", std::ios::app);
     output << line;
+    return id;
 }
 std::vector<std::string> Log::Recent()
 {
     const std::lock_guard lock(logMutex);
-    return recent;
+    std::vector<std::string> result;
+    for (const auto& entry : recent)
+        result.push_back(Format(entry));
+    return result;
+}
+std::vector<LogEntry> Log::Entries()
+{
+    const std::lock_guard lock(logMutex);
+    return {recent.begin(), recent.end()};
 }
 } // namespace nereides

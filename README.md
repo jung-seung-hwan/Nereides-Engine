@@ -27,7 +27,9 @@ vcpkg.json baseline과 triplets/x64-windows-v143.cmake로 Assimp·ImGui·ImGuizm
 2. Debug 또는 Release / x64를 선택한다.
 3. NereidesSandbox를 시작 프로젝트로 두고 F5를 누른다.
 
-처음에는 Edit 모드로 시작한다. Assets에서 모델을 검색해 더블클릭하거나 Scene으로 끌어 배치한다. Browse model로 외부 파일도 선택할 수 있다. Scene 위에서 우클릭 드래그는 회전, 가운데 버튼은 화면 이동, 휠은 확대·축소, F는 선택 객체에 초점 맞추기다. W/E/R로 이동·회전·크기 도구를 고르고 Inspector의 XYZ 값을 편집한다.
+처음에는 Edit 모드로 시작한다. Assets의 폴더 트리·검색·형식 필터로 모델을 찾고, 선택 후 Place in Scene으로 배치한다. 더블클릭과 Scene으로 드래그하는 방식도 지원한다. Browse...로 외부 파일을 선택한 뒤 Place in Scene을 누를 수 있다. Scene 위에서 우클릭 드래그는 회전, 가운데 버튼은 화면 이동, 휠은 확대·축소, F는 선택 객체에 초점 맞추기다. W/E/R로 이동·회전·크기 도구를 고르고 Inspector의 XYZ 값을 편집한다.
+
+Scene과 Assets 사이의 경계를 끌어 목록 높이를 조절한다. 로그는 상단 Console 버튼으로 별도 창에서 확인하고, 작업 실패 시 View log로 해당 오류에 이동한다. [Assets·Console 사용 안내](docs/stages/11-assets-console.md)에 조작과 구현 구조를 정리했다.
 
 Ctrl+Z / Ctrl+Y로 추가·삭제·속성 수정을 복구하고, Ctrl+S 또는 Save로 저장한다. 첫 저장은 파일을 선택하며 Open으로 다시 불러온다. Play에서 예제 동작을 시험하고 Stop / restore로 편집 상태에 돌아온다. 게임 실행 중 Scene 위에서 WASD로 예제 상자를 이동한다. 자세한 순서와 한계는 [팀원용 에디터 사용 안내](docs/stages/10-editor-workflow.md)에 기록했다.
 
@@ -47,7 +49,7 @@ Debug/Release 빌드 후 다음 모드를 실행하며, 실패한 종료 코드�
 | --smoke-test | 최초 삼각형과 배경의 GPU 픽셀 |
 | --scene-smoke-test | 월드/카메라/깊이를 사용하는 3D 출력 |
 | --editor-smoke-test | 에디터와 장면 출력, captures/editor.bmp |
-| --editor-workflow-test | 실제 UI 입력으로 배치·Z 편집·Undo/Redo·한글 경로·저장·Play/Stop 복구 |
+| --editor-workflow-test | 실제 UI 입력으로 배치·Z 편집·Undo/Redo·저장·Play/Stop·폴더 검색·Console·실패 보존 |
 | --editor-resize-smoke-test | Scene 뷰포트를 포함한 900×600 / 1280×720 크기 변경 |
 | --presentation-smoke-test | 2D 미리보기와 전투 정지, captures/presentation.bmp |
 | --resize-smoke-test | 실제 창 크기 변경 후 백버퍼·깊이 버퍼·카메라·픽셀 |
