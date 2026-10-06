@@ -32,13 +32,18 @@ double Number(const Json& j, double minimum, double maximum)
     return value;
 }
 } // namespace
-void SceneIO::Save(const Scene& scene, ObjectId camera, ObjectId player,
-                   const std::filesystem::path& path, const Camera& cameraData)
+std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player,
+                            const Camera& cameraData)
 {
     if (!scene.Find(camera) || (player && !scene.Find(player)))
         throw std::runtime_error("Scene role references missing object");
-    Json file = {
-        {"version", 1}, {"camera", camera}, {"player", player}, {"objects", Json::array()}};
+    std::map<ObjectId, ObjectId> ids{{0, 0}};
+    for (auto id : scene.Objects())
+        ids[id] = ids.size();
+    Json file = {{"version", 1},
+                 {"camera", ids.at(camera)},
+                 {"player", ids.at(player)},
+                 {"objects", Json::array()}};
     cameraData.Projection(1);
     cameraData.View(scene, camera);
     file["cameraSettings"] = {{"fov", cameraData.verticalFov},
@@ -50,8 +55,8 @@ void SceneIO::Save(const Scene& scene, ObjectId camera, ObjectId player,
         const auto& t = object.transform;
         if (t.scale.x <= 0 || t.scale.y <= 0 || t.scale.z <= 0)
             throw std::runtime_error("Scene scale must be positive");
-        Json entry = {{"id", id},
-                      {"parent", object.Parent()},
+        Json entry = {{"id", ids.at(id)},
+                      {"parent", ids.at(object.Parent())},
                       {"name", object.Name()},
                       {"enabled", object.enabled},
                       {"position", Vector(t.position)},
@@ -74,10 +79,14 @@ void SceneIO::Save(const Scene& scene, ObjectId camera, ObjectId player,
             else if (const auto* model = dynamic_cast<const ModelComponent*>(component))
             {
                 std::error_code error;
-                auto relative = std::filesystem::relative(model->model->path,
-                                                          std::filesystem::current_path(), error);
-                data = {{"type", "model"},
-                        {"path", error ? model->model->path : relative.generic_string()}};
+                auto relative = std::filesystem::relative(
+                    std::filesystem::path(std::u8string(
+                        reinterpret_cast<const char8_t*>(model->model->path.c_str()))),
+                    std::filesystem::current_path(), error);
+                const auto utf8 = relative.generic_u8string();
+                data = {
+                    {"type", "model"},
+                    {"path", error ? model->model->path : std::string(utf8.begin(), utf8.end())}};
             }
             else if (const auto* move = dynamic_cast<const MoveComponent*>(component))
                 data = {{"type", "move"}, {"speed", move->speed}};
@@ -123,17 +132,23 @@ void SceneIO::Save(const Scene& scene, ObjectId camera, ObjectId player,
         }
         file["objects"].push_back(std::move(entry));
     }
-    if (!path.parent_path().empty())
-        std::filesystem::create_directories(path.parent_path());
     const auto flattened = file.flatten();
     for (const auto& [key, value] : flattened.items())
         if (value.is_number_float() && !std::isfinite(value.get<double>()))
             throw std::runtime_error("Nonfinite scene value at " + key);
+    return file.dump(2);
+}
+void SceneIO::Save(const Scene& scene, ObjectId camera, ObjectId player,
+                   const std::filesystem::path& path, const Camera& cameraData)
+{
+    const auto encoded = Encode(scene, camera, player, cameraData);
+    if (!path.parent_path().empty())
+        std::filesystem::create_directories(path.parent_path());
     auto temporary = path;
     temporary += L".tmp";
     {
         std::ofstream stream(temporary, std::ios::binary);
-        stream << file.dump(2);
+        stream << encoded;
         stream.flush();
         if (!stream)
             throw std::runtime_error("Scene write failed");
@@ -147,8 +162,15 @@ LoadedScene SceneIO::Load(const std::filesystem::path& path, ModelCache& cache)
     if (std::filesystem::file_size(path) > 16 * 1024 * 1024)
         throw std::runtime_error("Scene file exceeds 16 MiB");
     std::ifstream input(path);
-    Json file;
-    input >> file;
+    if (!input)
+        throw std::runtime_error("Cannot open scene");
+    return Decode(std::string(std::istreambuf_iterator<char>(input), {}), cache);
+}
+LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
+{
+    if (text.size() > 16 * 1024 * 1024)
+        throw std::runtime_error("Scene exceeds 16 MiB");
+    const auto file = Json::parse(text);
     if (file.at("version") != 1)
         throw std::runtime_error("Unsupported scene version");
     const auto& entries = file.at("objects");
@@ -188,8 +210,11 @@ LoadedScene SceneIO::Load(const std::filesystem::path& path, ModelCache& cache)
                              float(Number(tint[2], 0, 1)), float(Number(tint[3], 0, 1))};
             }
             else if (type == "model")
-                component = &object.Add<ModelComponent>(
-                    cache.Load(std::filesystem::path(data.at("path").get<std::string>())));
+            {
+                const auto path = data.at("path").get<std::string>();
+                component = &object.Add<ModelComponent>(cache.Load(std::filesystem::path(
+                    std::u8string(reinterpret_cast<const char8_t*>(path.c_str())))));
+            }
             else if (type == "move")
             {
                 auto& move = object.Add<MoveComponent>();

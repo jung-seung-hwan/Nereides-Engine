@@ -112,7 +112,7 @@ std::shared_ptr<const ModelData> ModelCache::Load(const std::filesystem::path& p
         if (!source || !source->mRootNode)
             throw std::runtime_error(importer.GetErrorString());
         auto model = std::make_shared<ModelData>();
-        model->path = key.string();
+        model->path = std::string(utf8.begin(), utf8.end());
         std::unordered_map<std::string, unsigned> nodes;
         std::vector<const aiNode*> nodeSources;
         std::function<void(const aiNode*, int)> visit = [&](const aiNode* node, int parent) {

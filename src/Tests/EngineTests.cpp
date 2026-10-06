@@ -13,6 +13,8 @@
 #include "Presentation/Transition.h"
 #include "Core/Events.h"
 #include "Graphics/TextureCache.h"
+#include "Editor/EditHistory.h"
+#include "Editor/EditorGeometry.h"
 #include <fstream>
 #include <functional>
 #include <cmath>
@@ -377,6 +379,62 @@ void TestSceneIO()
     Require(failed && loaded.scene.Find(loaded.player), "failed load preserves live scene");
     std::filesystem::remove(path);
 }
+void TestEditorHistory()
+{
+    Scene scene;
+    ModelCache cache;
+    const auto camera = scene.Create("camera").Id();
+    const auto player = scene.Create("player").Id();
+    const auto parent = scene.Create("parent").Id();
+    scene.Find(parent)->transform.position = {4, 0, 0};
+    auto& child = scene.Create("child");
+    const auto childId = child.Id();
+    child.Add<MeshComponent>(MakeCube());
+    child.transform.position = {0, 2, 3};
+    scene.SetParent(childId, parent);
+    EditHistory history;
+    const auto initial = SceneIO::Encode(scene, camera, player);
+    history.Reset(initial);
+    auto decoded = SceneIO::Decode(initial, cache);
+    Require(SceneIO::Encode(decoded.scene, decoded.camera, decoded.player) == initial,
+            "history canonical form survives handle remapping");
+    scene.Destroy(parent);
+    scene.Flush();
+    history.Commit(SceneIO::Encode(scene, camera, player));
+    Require(history.Dirty() && history.CanUndo(), "deletion records an edit");
+    decoded = SceneIO::Decode(history.Target(-1), cache);
+    history.Accept(-1);
+    Require(decoded.scene.Objects().size() == 4 && !history.Dirty(),
+            "undo restores entire deleted subtree and saved state");
+    auto restoredChild = decoded.scene.Objects().back();
+    const auto box = EditorBounds(decoded.scene, restoredChild);
+    Require(Near(box.Center.x, 4) && Near(box.Center.y, 2) && Near(box.Center.z, 3),
+            "editor bounds include parent transform");
+    Require(PickEditorObject(decoded.scene, DirectX::XMVectorSet(4, 2, -5, 1),
+                             DirectX::XMVectorSet(0, 0, 1, 0)) == restoredChild,
+            "viewport ray selects visible object");
+    Require(!PickEditorObject(decoded.scene, DirectX::XMVectorSet(20, 2, -5, 1),
+                              DirectX::XMVectorSet(0, 0, 1, 0)),
+            "viewport ray misses empty space");
+    decoded.scene.Find(restoredChild)->transform.position.z = 9;
+    history.Commit(SceneIO::Encode(decoded.scene, decoded.camera, decoded.player));
+    Require(!history.CanRedo(), "edit after undo discards the old redo branch");
+    history.MarkSaved();
+    Require(!history.Dirty(), "save marks history position");
+    history.Accept(-1);
+    Require(history.Dirty(), "undo away from saved state becomes dirty");
+    history.Accept(1);
+    Require(!history.Dirty(), "redo to saved state becomes clean");
+    for (int i = 0; i < 100; ++i)
+        history.Commit(std::to_string(i));
+    unsigned count = 0;
+    while (history.CanUndo())
+    {
+        history.Accept(-1);
+        ++count;
+    }
+    Require(count == 64, "history bounded to 64 undo operations");
+}
 void TestTransitionsAndEvents()
 {
     Transition playback;
@@ -487,6 +545,7 @@ int RunEngineTests()
         TestModelCache();
         TestCollision();
         TestSceneIO();
+        TestEditorHistory();
         TestTransitionsAndEvents();
         Log::Write(LogLevel::Info,
                    "Engine tests PASS: input, time, scene, render input, animation, model cache, "

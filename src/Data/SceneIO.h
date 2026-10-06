@@ -22,6 +22,10 @@ struct LoadedScene
 class SceneIO final
 {
 public:
+    // Canonical in-memory form, also used by editor history and play/stop restoration.
+    static std::string Encode(const Scene&, ObjectId camera, ObjectId player,
+                              const Camera& cameraData = Camera{});
+    static LoadedScene Decode(const std::string&, ModelCache& cache);
     static void Save(const Scene&, ObjectId camera, ObjectId player,
                      const std::filesystem::path& path, const Camera& cameraData = Camera{});
     static LoadedScene Load(const std::filesystem::path& path, ModelCache& cache);
