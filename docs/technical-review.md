@@ -141,3 +141,7 @@ SherlockEngine은 수정하지 않았으며 복사한 코드는 없다. 장치�
 - Debug/Release x64 빌드, 양쪽 GPU 픽셀 검증·정상 종료(exit 0) 성공. Debug에서 세 크기 변경·최소화·복원·종료(exit 0) 확인. 리사이즈 이후 픽셀 위치와 전체 영상·Live Object 출력의 판독은 아직 미검증이다.
 
 다음 기능은 사용자 검토와 별도 진행 요청 이후 결정한다. 이 단계 변경은 커밋하거나 push하지 않았다.
+
+## 2026-10-06 공통 기반 구현
+
+초기 기록 이후 객체·입력·시간·렌더 입력·FBX·재생·충돌·최소 에디터·씬 저장·2D 전환·이벤트 수명을 단계별로 구현했다. 현재 결과와 코드 읽기 순서는 implementation-roadmap.md, 실제 계약과 남은 콘텐츠/렌더 통합은 integration-contracts.md를 따른다. 이번 구현에도 Sherlock 소스는 복사하지 않았으며 검증용 DX11 백엔드를 독립적으로 확장했다. Assimp·ImGui·ImGuizmo·nlohmann-json은 프로젝트 manifest/triplet으로 설치했다. 기존 기획 DOCX의 작업 중 변경은 이 구현 커밋에서 제외했다.

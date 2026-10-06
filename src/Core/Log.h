@@ -4,11 +4,16 @@
 #include <vector>
 namespace nereides
 {
-enum class LogLevel { Info, Warning, Error };
+enum class LogLevel
+{
+    Info,
+    Warning,
+    Error
+};
 class Log final
 {
 public:
     static void Write(LogLevel level, std::string_view message);
     static std::vector<std::string> Recent();
 };
-}
+} // namespace nereides

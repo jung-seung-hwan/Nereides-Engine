@@ -33,6 +33,7 @@ vcpkg_installed/
 # Local runtime and temporary files
 /logs/
 /captures/
+/dist/
 *.tmp
 *.swp
 Thumbs.db

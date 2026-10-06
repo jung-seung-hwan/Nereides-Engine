@@ -11,7 +11,7 @@ public:
     {
         float x = float(frame.input.Held('D')) - float(frame.input.Held('A'));
         float z = float(frame.input.Held('W')) - float(frame.input.Held('S'));
-        const float length = std::sqrt(x*x + z*z);
+        const float length = std::sqrt(x * x + z * z);
         if (length > 0)
         {
             const float step = speed * static_cast<float>(frame.time.combat.delta) / length;
@@ -21,4 +21,4 @@ public:
     }
     float speed = 3.f;
 };
-}
+} // namespace nereides

@@ -11,20 +11,35 @@
 namespace nereides
 {
 using ObjectId = std::uint64_t;
-struct FrameContext { const Input& input; const Time& time; };
+struct FrameContext
+{
+    const Input& input;
+    const Time& time;
+};
 struct Transform
 {
-    DirectX::XMFLOAT3 position{0,0,0}, rotation{0,0,0}, scale{1,1,1};
+    DirectX::XMFLOAT3 position{0, 0, 0}, rotation{0, 0, 0}, scale{1, 1, 1};
     DirectX::XMMATRIX Matrix() const noexcept;
 };
 class Object;
 class Scene;
+enum class UpdatePhase
+{
+    Logic,
+    Animation,
+    Late
+};
 class Component
 {
 public:
     virtual ~Component() = default;
     virtual void Update(Object&, Scene&, const FrameContext&) {}
+    virtual UpdatePhase Phase() const
+    {
+        return UpdatePhase::Logic;
+    }
     bool enabled = true;
+
 private:
     friend class Object;
     friend class Scene;
@@ -34,34 +49,56 @@ class Object final
 {
 public:
     Object(ObjectId id, std::string name) : m_id(id), m_name(std::move(name)) {}
-    ObjectId Id() const noexcept { return m_id; }
-    ObjectId Parent() const noexcept { return m_parent; }
-    const std::string& Name() const noexcept { return m_name; }
-    void SetName(std::string name) { m_name = std::move(name); }
-    template<class T, class... Args> T& Add(Args&&... args)
+    ObjectId Id() const noexcept
+    {
+        return m_id;
+    }
+    ObjectId Parent() const noexcept
+    {
+        return m_parent;
+    }
+    const std::string& Name() const noexcept
+    {
+        return m_name;
+    }
+    void SetName(std::string name)
+    {
+        m_name = std::move(name);
+    }
+    template <class T, class... Args> T& Add(Args&&... args)
     {
         auto value = std::make_unique<T>(std::forward<Args>(args)...);
-        auto& result = *value; m_components.push_back(std::move(value)); return result;
+        auto& result = *value;
+        m_components.push_back(std::move(value));
+        return result;
     }
-    template<class T> T* Get() const noexcept
+    template <class T> T* Get() const noexcept
     {
         for (const auto& component : m_components)
             if (!component->m_removed)
-                if (auto* value = dynamic_cast<T*>(component.get())) return value;
+                if (auto* value = dynamic_cast<T*>(component.get()))
+                    return value;
         return nullptr;
     }
-    template<class T> void Remove() noexcept
+    template <class T> void Remove() noexcept
     {
-        if (auto* value = Get<T>()) { value->enabled = false; value->m_removed = true; }
+        if (auto* value = Get<T>())
+        {
+            value->enabled = false;
+            value->m_removed = true;
+        }
     }
     std::vector<const Component*> Components() const
     {
         std::vector<const Component*> result;
-        for(const auto& component:m_components) if(!component->m_removed) result.push_back(component.get());
+        for (const auto& component : m_components)
+            if (!component->m_removed)
+                result.push_back(component.get());
         return result;
     }
     Transform transform;
     bool enabled = true;
+
 private:
     friend class Scene;
     ObjectId m_id, m_parent = 0;
@@ -82,6 +119,7 @@ public:
     bool SetParent(ObjectId child, ObjectId parent);
     DirectX::XMMATRIX World(ObjectId id) const;
     bool Active(ObjectId id) const;
+
 private:
     bool m_updating = false;
     std::vector<std::unique_ptr<Object>> m_objects;
@@ -93,4 +131,4 @@ struct Camera
     DirectX::XMMATRIX Projection(float aspect) const;
     DirectX::XMMATRIX View(const Scene& scene, ObjectId object) const;
 };
-}
+} // namespace nereides

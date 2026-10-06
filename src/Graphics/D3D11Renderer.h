@@ -23,12 +23,25 @@ public:
     bool Initialize(HWND window, std::uint32_t width, std::uint32_t height);
     bool Resize(std::uint32_t width, std::uint32_t height);
     bool Render(bool verifyFrame = false);
-    bool RenderScene(const RenderFrame& frame, bool verifyFrame = false, std::uint64_t* pixelHash = nullptr);
+    bool RenderScene(const RenderFrame& frame, bool verifyFrame = false,
+                     std::uint64_t* pixelHash = nullptr);
     void Shutdown() noexcept;
-    ID3D11Device* Device() const {return m_device.Get();}
-    ID3D11DeviceContext* Context() const {return m_context.Get();}
-    void SetOverlay(std::function<void()> draw) {m_overlay=std::move(draw);}
-    void RequestCapture(std::filesystem::path path) {m_capturePath=std::move(path);}
+    ID3D11Device* Device() const
+    {
+        return m_device.Get();
+    }
+    ID3D11DeviceContext* Context() const
+    {
+        return m_context.Get();
+    }
+    void SetOverlay(std::function<void()> draw)
+    {
+        m_overlay = std::move(draw);
+    }
+    void RequestCapture(std::filesystem::path path)
+    {
+        m_capturePath = std::move(path);
+    }
 
 private:
     bool CreateBackBuffer();
@@ -66,4 +79,4 @@ private:
     std::uint32_t m_width = 0;
     std::uint32_t m_height = 0;
 };
-}
+} // namespace nereides

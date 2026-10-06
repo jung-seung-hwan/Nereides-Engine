@@ -17,7 +17,9 @@
 | 게임기획서의 11월 이전 2D 전환 일정 | 기술검토서 I의 11월 23일 시연 범위 우선. 두 전환·패링·강화·R은 시연 이후 연결 |
 | 초기 README와 기술검토 기록의 검·총 콘셉트 | 현재 기획의 부유검 근접전 기준. 초기 기록은 개발 이력으로 취급 |
 
-## 현재 구현 상태
+## 검토 시작 시점 구현 상태
+
+아래는 구현에 착수하기 전의 기록이다. 이후 단계별 구현·검증 현황은 [구현 로드맵](implementation-roadmap.md)을 따른다.
 
 `src/Main.cpp`, `src/Platform/Win32Window.*`, `src/Graphics/D3D11Renderer.*`, `TriangleShaders.h`를 확인했다. Win32 창·메시지 루프, DX11 초기화·리사이즈·Present, 삼각형 표시와 smoke-test 경로가 있다. 게임용 입력·시간 서비스, Scene·Component·Transform·Camera, 모델 로더·애니메이션·충돌·에디터는 아직 없다. Main의 경과 시간은 자동 테스트 종료용이며 게임 시간 서비스가 아니다. 이번 검토에서 빌드를 다시 실행하지 않았다.
 

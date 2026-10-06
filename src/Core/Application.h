@@ -8,10 +8,22 @@
 #include "Editor/Editor.h"
 namespace nereides
 {
+struct RunOptions
+{
+    bool automatic = false, legacyTriangle = false, editor = true, preview = false, resize = false,
+         benchmark = false;
+};
 class Application final
 {
 public:
-    int Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest = false, bool editorTest = false,bool presentationTest=false);
+    ~Application()
+    {
+        // Also detach callbacks on early initialization/render failure before Editor is destroyed.
+        m_window.SetMessageHandler({});
+        m_renderer.SetOverlay({});
+    }
+    int Run(HINSTANCE instance, int showCommand, const RunOptions& options);
+
 private:
     // Reverse destruction releases GPU resources before the window.
     Input m_input;
@@ -25,4 +37,4 @@ private:
     Camera m_cameraData;
     CollisionWorld m_collision;
 };
-}
+} // namespace nereides

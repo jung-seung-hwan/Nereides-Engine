@@ -18,13 +18,34 @@ public:
 
     bool Create(HINSTANCE instance, int showCommand);
     bool ProcessMessages(int& exitCode);
-    void SetInput(Input* input) noexcept { m_input = input; }
-    void SetMessageHandler(std::function<void(HWND,UINT,WPARAM,LPARAM)> handler) { m_messageHandler=std::move(handler); }
-    HWND Handle() const noexcept { return m_window; }
-    std::uint32_t Width() const noexcept { return m_width; }
-    std::uint32_t Height() const noexcept { return m_height; }
-    bool IsMinimized() const noexcept { return m_minimized; }
-    bool IsFocused() const noexcept { return m_focused; }
+    void SetInput(Input* input) noexcept
+    {
+        m_input = input;
+    }
+    void SetMessageHandler(std::function<void(HWND, UINT, WPARAM, LPARAM)> handler)
+    {
+        m_messageHandler = std::move(handler);
+    }
+    HWND Handle() const noexcept
+    {
+        return m_window;
+    }
+    std::uint32_t Width() const noexcept
+    {
+        return m_width;
+    }
+    std::uint32_t Height() const noexcept
+    {
+        return m_height;
+    }
+    bool IsMinimized() const noexcept
+    {
+        return m_minimized;
+    }
+    bool IsFocused() const noexcept
+    {
+        return m_focused;
+    }
 
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -37,8 +58,8 @@ private:
     bool m_minimized = false;
     bool m_focused = false;
     Input* m_input = nullptr;
-    std::function<void(HWND,UINT,WPARAM,LPARAM)> m_messageHandler;
+    std::function<void(HWND, UINT, WPARAM, LPARAM)> m_messageHandler;
     std::uint32_t m_width = 1280;
     std::uint32_t m_height = 720;
 };
-}
+} // namespace nereides
