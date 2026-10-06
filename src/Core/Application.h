@@ -11,7 +11,7 @@ namespace nereides
 class Application final
 {
 public:
-    int Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest = false, bool editorTest = false);
+    int Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest = false, bool editorTest = false,bool presentationTest=false);
 private:
     // Reverse destruction releases GPU resources before the window.
     Input m_input;

@@ -10,6 +10,9 @@
 #include "Platform/Win32Window.h"
 #include "Collision/Collision.h"
 #include "Data/SceneIO.h"
+#include "Presentation/Transition.h"
+#include "Core/Events.h"
+#include "Graphics/TextureCache.h"
 #include <fstream>
 #include <functional>
 #include <cmath>
@@ -183,10 +186,37 @@ void TestSceneIO()
     Require(failed && loaded.scene.Find(loaded.player),"failed load preserves live scene");
     std::filesystem::remove(path);
 }
+void TestTransitionsAndEvents()
+{
+    Transition playback;Clip2D clip;clip.duration=2;clip.fadeOut=.5;clip.fadeIn=.5;
+    auto token=playback.Begin(clip);Require(playback.BlocksCombat(),"presentation gates combat");
+    playback.Advance(.5);Require(playback.State()==TransitionState::Playing,"fade out then 2D");
+    Require(playback.Skip(token)&&!playback.Skip(token),"skip once");
+    playback.Advance(100);Require(playback.State()==TransitionState::WaitingForScene,"skip waits for scene");
+    Require(!playback.SceneReady(token+1)&&playback.SceneReady(token),"readiness token");
+    playback.Advance(.49);Require(playback.BlocksCombat(),"no early input restoration");
+    playback.Advance(.01);Require(playback.State()==TransitionState::Complete&&!playback.BlocksCombat(),"fade in completes");
+    token=playback.Begin(clip);playback.Advance(100);
+    Require(playback.State()==TransitionState::WaitingForScene,"natural completion converges with skip");
+    Require(playback.Fail(token,"missing scene"),"prepare failure");Require(!playback.SceneReady(token),"failure not readiness");
+    playback.Reset();Require(!playback.SceneReady(token)&&!playback.BlocksCombat(),"restart rejects stale completion");
+    Scene scene;auto owner=scene.Create("listener").Id();Events events;int received=0;
+    auto subscription=events.Subscribe(owner,"hit",[&](const Event&){++received;});
+    Event event;event.name="hit";event.epoch=events.Epoch();events.Publish(event);
+    scene.Destroy(owner);scene.Flush();events.Dispatch(scene);Require(received==0,"dead listener not invoked");
+    events.Unsubscribe(subscription);
+    events.Subscribe(0,"hit",[&](const Event&){++received;events.Reset();});
+    events.Publish(event);events.Publish(event);events.Dispatch(scene);
+    Require(received==1&&!events.Publish(event),"restart invalidates queued and late old events");
+    events.Subscribe(0,"hit",[&](const Event& e){++received;if(received==2)events.Publish(e);});
+    event.epoch=events.Epoch();events.Publish(event);events.Dispatch(scene);Require(received==2,"reentrant publish waits next dispatch");
+    events.Dispatch(scene);Require(received==3,"queued next dispatch");
+    const auto loaded=Clip2D::Load("data/presentation/preview.json");Require(loaded.layers.size()==3,"presentation data loading");
+}
 }
 int RunEngineTests()
 {
-    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); TestAnimation(); TestModelCache(); TestCollision(); TestSceneIO(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input, animation, model cache, collision, scene IO"); return 0; }
+    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); TestAnimation(); TestModelCache(); TestCollision(); TestSceneIO(); TestTransitionsAndEvents(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input, animation, model cache, collision, scene IO, transitions, events"); return 0; }
     catch (const std::exception& error) { Log::Write(LogLevel::Error, error.what()); return 1; }
 }
 int RunModelTest(const std::filesystem::path& path)
@@ -239,7 +269,11 @@ int RunModelTest(const std::filesystem::path& path)
         XMStoreFloat4x4(&frame.view,XMMatrixLookAtLH(eye,center,XMVectorSet(0,1,0,0)));
         XMStoreFloat4x4(&frame.projection,XMMatrixPerspectiveFovLH(XM_PIDIV4,float(window.Width())/window.Height(),radius*.01f,radius*10));
         std::uint64_t first=0,second=0;
+        renderer.RequestCapture("logs/model-probe.bmp");
         Require(renderer.RenderScene(frame,false,&first),"model GPU visibility");
+        TextureCache textures;textures.SetDevice(renderer.Device());
+        auto* texture=textures.Get("logs/model-probe.bmp");
+        Require(texture && textures.Get("logs/model-probe.bmp")==texture,"WIC texture upload and cache");
         if(!model->clips.empty())
         {
             component.player.Advance(model->clips[0].duration*.37);

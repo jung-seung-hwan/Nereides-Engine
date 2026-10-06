@@ -68,7 +68,7 @@ bool Editor::Initialize(HWND window,ID3D11Device* device,ID3D11DeviceContext* co
     ImGui::StyleColorsDark();
     if(!ImGui_ImplWin32_Init(window)){ImGui::DestroyContext();return false;}
     if(!ImGui_ImplDX11_Init(device,context)){ImGui_ImplWin32_Shutdown();ImGui::DestroyContext();return false;}
-    m_initialized=true;return true;
+    m_textures.SetDevice(device);m_initialized=true;return true;
 }
 void Editor::Message(HWND window,UINT message,WPARAM wParam,LPARAM lParam)
 {if(m_initialized)ImGui_ImplWin32_WndProcHandler(window,message,wParam,lParam);}
@@ -161,9 +161,29 @@ bool Editor::Begin(Scene& scene,ObjectId& cameraId,ObjectId& player,Camera& came
     {
         auto loaded=SceneIO::Load(m_scenePath,m_models);scene=std::move(loaded.scene);cameraId=loaded.camera;player=loaded.player;
         camera=loaded.cameraData;m_selected=0;m_dirty=false;replaced=true;m_status="Scene loaded";
+        m_transition.Reset();time.Reset();time.paused=true;
     }catch(const std::exception& e){m_status=e.what();Log::Write(LogLevel::Error,m_status);}
     ImGui::TextWrapped("%s",m_status.c_str());
     if(ImGui::CollapsingHeader("Log"))for(const auto& line:Log::Recent())ImGui::TextWrapped("%s",line.c_str());
+    if(ImGui::CollapsingHeader("Transition preview"))
+    {
+        ImGui::InputText("Clip path",m_clipPath,sizeof(m_clipPath));
+        if(ImGui::Button("Start preview"))try
+        {
+            StartPreview();
+        }catch(const std::exception& e){m_status=e.what();Log::Write(LogLevel::Error,m_status);}
+        ImGui::SameLine();if(ImGui::Button("Skip"))m_transition.Skip(m_transition.Token());
+        const auto state=m_transition.State();
+        const char* labels[]={"Idle","Fade out","2D playing","Waiting for scene","Fade in","Complete","Failed"};
+        ImGui::Text("%s",labels[static_cast<unsigned>(state)]);
+        if(state==TransitionState::WaitingForScene)
+        {
+            if(ImGui::Button("Scene ready"))m_transition.SceneReady(m_transition.Token());
+            ImGui::SameLine();if(ImGui::Button("Simulate failure"))m_transition.Fail(m_transition.Token(),"Preview scene load failed");
+        }
+        if(!m_transition.Error().empty())ImGui::TextWrapped("%s",m_transition.Error().c_str());
+        if(ImGui::Button("Reset preview"))m_transition.Reset();
+    }
     ImGui::End();
     (void)collision;
     input.Capture(ImGui::GetIO().WantCaptureKeyboard,ImGui::GetIO().WantCaptureMouse||ImGuizmo::IsUsing());
@@ -171,5 +191,34 @@ bool Editor::Begin(Scene& scene,ObjectId& cameraId,ObjectId& player,Camera& came
 }
 void Editor::Render(){ImGui::Render();ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());}
 void Editor::DrawDebug(const Scene& scene,ObjectId cameraId,const Camera& camera,const CollisionWorld& collision)
-{if(m_debug)DebugShapes(scene,cameraId,camera,collision);}
+{
+    if(m_debug)DebugShapes(scene,cameraId,camera,collision);
+    const auto screen=ImGui::GetIO().DisplaySize;auto* draw=ImGui::GetBackgroundDrawList();
+    if(m_transition.State()==TransitionState::Playing)
+    {
+        const auto& clip=m_transition.Clip();const float t=clip.duration>0 ? float(m_transition.ClipPosition()/clip.duration):1;
+        for(const auto& layer:clip.layers)
+        {
+            const float scale=layer.startScale+(layer.endScale-layer.startScale)*t;
+            ImVec2 start{(layer.from.x+(layer.to.x-layer.from.x)*t)*screen.x,(layer.from.y+(layer.to.y-layer.from.y)*t)*screen.y};
+            ImVec2 end{start.x+layer.size.x*scale*screen.x,start.y+layer.size.y*scale*screen.y};
+            const auto color=ImGui::ColorConvertFloat4ToU32({layer.color.x,layer.color.y,layer.color.z,layer.color.w});
+            if(layer.texture.empty())draw->AddRectFilled(start,end,color);
+            else draw->AddImage(ImTextureRef(reinterpret_cast<ImTextureID>(m_textures.Get(layer.texture))),start,end,{0,0},{1,1},color);
+            if(!layer.label.empty())draw->AddText({start.x+12,start.y+12},IM_COL32_WHITE,layer.label.c_str());
+        }
+    }
+    if(m_transition.Fade()>0)draw->AddRectFilled({0,0},screen,IM_COL32(0,0,0,static_cast<int>(m_transition.Fade()*255)));
+}
+void Editor::AdvancePresentation(double dt)
+{
+    m_transition.Advance(dt);
+    for(const auto& event:m_transition.TakeNotices())Log::Write(LogLevel::Info,"Presentation token="+std::to_string(event.token)+" state="+std::to_string(static_cast<unsigned>(event.state)));
+}
+void Editor::StartPreview()
+{
+    auto clip=Clip2D::Load(m_clipPath);
+    for(const auto& layer:clip.layers)if(!layer.texture.empty())m_textures.Get(layer.texture);
+    m_transition.Begin(std::move(clip));
+}
 }

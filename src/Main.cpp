@@ -14,8 +14,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
         return nereides::RunModelTest(std::filesystem::path(path));
     }
     nereides::Application application;
-    const bool editorTest = arguments == L"--editor-smoke-test";
+    const bool presentationTest=arguments==L"--presentation-smoke-test";
+    const bool editorTest = arguments == L"--editor-smoke-test" || presentationTest;
     const bool sceneTest = arguments == L"--scene-smoke-test" || editorTest;
-    try {return application.Run(instance, showCommand, arguments == L"--smoke-test" || sceneTest, sceneTest,editorTest);}
+    try {return application.Run(instance, showCommand, arguments == L"--smoke-test" || sceneTest, sceneTest,editorTest,presentationTest);}
     catch(const std::exception& error){nereides::Log::Write(nereides::LogLevel::Error,error.what());return 1;}
 }

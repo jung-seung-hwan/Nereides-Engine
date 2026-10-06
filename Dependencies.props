@@ -13,7 +13,7 @@
     <ClCompile><AdditionalIncludeDirectories>$(DependenciesRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <Link>
       <AdditionalLibraryDirectories>$(DependenciesRoot)$(DependenciesConfig)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(AssimpLibrary);$(ImGuiLibrary);imguizmo.lib;dwmapi.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(AssimpLibrary);$(ImGuiLibrary);imguizmo.lib;dwmapi.lib;imm32.lib;ole32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Target Name="CheckNereidesDependencies" BeforeTargets="PrepareForBuild">

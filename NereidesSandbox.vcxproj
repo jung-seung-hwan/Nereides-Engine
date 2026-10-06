@@ -90,8 +90,10 @@
     <ClCompile Include="src\Editor\Editor.cpp" />
     <ClCompile Include="src\Graphics\D3D11Renderer.cpp" />
     <ClCompile Include="src\Graphics\RenderFrame.cpp" />
+    <ClCompile Include="src\Graphics\TextureCache.cpp" />
     <ClCompile Include="src\Main.cpp" />
     <ClCompile Include="src\Platform\Win32Window.cpp" />
+    <ClCompile Include="src\Presentation\Transition.cpp" />
     <ClCompile Include="src\Resource\Model.cpp" />
     <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Tests\EngineTests.cpp" />
@@ -100,6 +102,7 @@
     <ClInclude Include="src\Animation\Timeline.h" />
     <ClInclude Include="src\Collision\Collision.h" />
     <ClInclude Include="src\Core\Application.h" />
+    <ClInclude Include="src\Core\Events.h" />
     <ClInclude Include="src\Core\Input.h" />
     <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Time.h" />
@@ -108,8 +111,10 @@
     <ClInclude Include="src\Graphics\D3D11Renderer.h" />
     <ClInclude Include="src\Graphics\MeshShaders.h" />
     <ClInclude Include="src\Graphics\RenderFrame.h" />
+    <ClInclude Include="src\Graphics\TextureCache.h" />
     <ClInclude Include="src\Graphics\TriangleShaders.h" />
     <ClInclude Include="src\Platform\Win32Window.h" />
+    <ClInclude Include="src\Presentation\Transition.h" />
     <ClInclude Include="src\Resource\Model.h" />
     <ClInclude Include="src\Sandbox\MoveComponent.h" />
     <ClInclude Include="src\Scene\Scene.h" />

@@ -5,7 +5,7 @@
 #include <string>
 namespace nereides
 {
-int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest, bool editorTest)
+int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest, bool editorTest,bool presentationTest)
 {
     m_window.SetInput(&m_input);
     if (!m_window.Create(instance, smokeTest ? SW_HIDE : showCommand)) return 1;
@@ -34,6 +34,7 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
         if(!m_editor.Initialize(m_window.Handle(),m_renderer.Device(),m_renderer.Context()))return 1;
         m_window.SetMessageHandler([this](HWND w,UINT m,WPARAM p,LPARAM l){m_editor.Message(w,m,p,l);});
         m_renderer.SetOverlay([this]{m_editor.Render();});
+        if(presentationTest)m_editor.StartPreview();
     }
     auto previous = std::chrono::steady_clock::now();
     int exitCode = 0;
@@ -43,7 +44,7 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
         m_input.BeginFrame();
         if (!m_window.ProcessMessages(exitCode)) break;
         const auto now = std::chrono::steady_clock::now();
-        const double delta = std::chrono::duration<double>(now - previous).count();
+        const double delta = presentationTest ? 1./60 : std::chrono::duration<double>(now - previous).count();
         previous = now;
         if (m_window.IsMinimized() || m_window.Width() == 0 || m_window.Height() == 0)
         {
@@ -57,14 +58,19 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
             Log::Write(LogLevel::Info, m_time.paused ? "Paused" : "Resumed");
         }
         const bool menuPause = m_time.paused;
+        const bool presentationBlocked=editorEnabled&&m_editor.BlocksCombat();
+        if(presentationBlocked!=m_time.combatStopped || presentationBlocked)m_input.DiscardHeld();
+        m_time.combatStopped=presentationBlocked;
         m_time.paused = menuPause || (!smokeTest && !m_window.IsFocused());
         m_time.Advance(delta); m_time.paused = menuPause;
+        if(editorEnabled)m_editor.AdvancePresentation(m_time.presentation.delta);
         m_scene.Update({m_input, m_time});
         const auto contacts=m_collision.Step(m_scene,m_time.combat.elapsed-m_time.combat.delta,m_time.combat.elapsed);
         for(const auto& contact:contacts) if(contact.kind==ContactKind::Enter)
             Log::Write(LogLevel::Info,"Trigger entered at "+std::to_string(contact.time));
         if(editorEnabled)m_editor.DrawDebug(m_scene,m_camera,m_cameraData,m_collision);
         if(editorTest && m_time.frame==3)m_renderer.RequestCapture("captures/editor.bmp");
+        if(presentationTest && m_time.frame==30)m_renderer.RequestCapture("captures/presentation.bmp");
         if (!m_renderer.Resize(m_window.Width(), m_window.Height())) return 1;
         if (smokeTest && !sceneTest)
         {
@@ -74,7 +80,7 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
         {
             const auto frame = CollectRenderFrame(m_scene,m_camera,m_cameraData,
                 float(m_window.Width())/float(m_window.Height()),m_time.combat.elapsed);
-            if (!m_renderer.RenderScene(frame,sceneTest && !frameVerified)) return 1;
+            if (!m_renderer.RenderScene(frame,sceneTest && !frameVerified && !presentationTest)) return 1;
         }
         frameVerified = true;
         if (!smokeTest)

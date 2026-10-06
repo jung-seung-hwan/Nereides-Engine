@@ -10,7 +10,7 @@ try {
         if ($config -notin @('Debug','Release')) { throw 'Unknown build configuration' }
         & $msbuild NereidesEngine.sln "/p:Configuration=$config" /p:Platform=x64 /v:minimal /nologo
         if ($LASTEXITCODE -ne 0) { throw "$config build failed" }
-        foreach ($mode in @('--engine-tests','--smoke-test','--scene-smoke-test','--editor-smoke-test')) {
+        foreach ($mode in @('--engine-tests','--smoke-test','--scene-smoke-test','--editor-smoke-test','--presentation-smoke-test')) {
             $process = Start-Process -FilePath (Join-Path $root "bin/x64/$config/NereidesSandbox.exe") -ArgumentList $mode -PassThru -WindowStyle Hidden
             if (-not $process.WaitForExit(20000)) {
                 $process.Kill()

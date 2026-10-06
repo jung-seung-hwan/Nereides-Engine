@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "duration": 2.0,
+  "fadeOut": 0.4,
+  "fadeIn": 0.4,
+  "layers": [
+    { "label": "Transition preview - placeholder art", "from": [0, 0], "to": [0, 0], "size": [1, 1], "color": [0.03, 0.12, 0.21, 1] },
+    { "label": "NEXT DECK", "from": [0.72, 0.35], "to": [0.52, 0.35], "size": [0.3, 0.25], "color": [0.13, 0.48, 0.54, 1], "startScale": 0.8, "endScale": 1.0 },
+    { "label": "", "from": [0.3, 0.7], "to": [0.65, 0.3], "size": [0.04, 0.12], "color": [0.95, 0.75, 0.36, 1] }
+  ]
+}
