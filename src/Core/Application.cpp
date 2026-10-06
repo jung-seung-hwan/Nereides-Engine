@@ -45,8 +45,10 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     const bool editorEnabled = options.editor;
     if (editorEnabled)
     {
-        if (!m_editor.Initialize(m_window.Handle(), m_renderer.Device(), m_renderer.Context()))
+        if (!m_editor.Initialize(m_window.Handle(), m_renderer))
             return 1;
+        if (!smokeTest)
+            m_window.SetCloseGuard([this] { return m_editor.RequestClose(); });
         m_window.SetMessageHandler(
             [this](HWND w, UINT m, WPARAM p, LPARAM l) { m_editor.Message(w, m, p, l); });
         m_renderer.SetOverlay([this] { m_editor.Render(); });
@@ -79,7 +81,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
             m_collision.Reset();
             m_input.DiscardHeld();
         }
-        if (m_input.Pressed(VK_ESCAPE))
+        if (m_input.Pressed(VK_ESCAPE) && (!editorEnabled || m_editor.Playing()))
         {
             m_time.paused = !m_time.paused;
             m_input.DiscardHeld();
@@ -95,7 +97,8 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         m_time.paused = menuPause;
         if (editorEnabled)
             m_editor.AdvancePresentation(m_time.presentation.delta);
-        m_scene.Update({m_input, m_time});
+        if (!editorEnabled || m_editor.Playing())
+            m_scene.Update({m_input, m_time});
         std::vector<Contact> contacts;
         if (m_time.combat.delta > 0)
             contacts = m_collision.Step(m_scene, m_time.combat.elapsed - m_time.combat.delta,
@@ -120,9 +123,11 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         }
         else
         {
-            const auto frame = CollectRenderFrame(
-                m_scene, m_camera, m_cameraData, float(m_window.Width()) / float(m_window.Height()),
-                m_time.combat.elapsed);
+            auto frame = CollectRenderFrame(m_scene, m_camera, m_cameraData,
+                                            float(m_window.Width()) / float(m_window.Height()),
+                                            m_time.combat.elapsed);
+            if (editorEnabled)
+                m_editor.ApplyView(frame);
             const bool verifyPixels =
                 sceneTest && !presentationTest &&
                 (!frameVerified || (options.resize && (m_time.frame == 4 || m_time.frame == 7)));

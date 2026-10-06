@@ -97,6 +97,7 @@
     <ClCompile Include="src\Resource\Model.cpp" />
     <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Tests\EngineTests.cpp" />
+    <ClCompile Include="src\Tests\EditorWorkflowTests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Animation\Timeline.h" />
@@ -108,6 +109,8 @@
     <ClInclude Include="src\Core\Time.h" />
     <ClInclude Include="src\Data\SceneIO.h" />
     <ClInclude Include="src\Editor\Editor.h" />
+    <ClInclude Include="src\Editor\EditHistory.h" />
+    <ClInclude Include="src\Editor\EditorGeometry.h" />
     <ClInclude Include="src\Graphics\D3D11Renderer.h" />
     <ClInclude Include="src\Graphics\MeshShaders.h" />
     <ClInclude Include="src\Graphics\RenderFrame.h" />

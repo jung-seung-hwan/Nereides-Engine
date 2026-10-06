@@ -319,18 +319,60 @@ D3D11Renderer::GpuMesh* D3D11Renderer::Upload(const std::shared_ptr<const MeshDa
         return nullptr;
     return &m_meshes.insert_or_assign(mesh.get(), std::move(gpu)).first->second;
 }
+bool D3D11Renderer::PrepareSceneView(std::uint32_t width, std::uint32_t height)
+{
+    width = std::clamp(width, 1u, 8192u);
+    height = std::clamp(height, 1u, 8192u);
+    if (m_sceneView && width == m_sceneWidth && height == m_sceneHeight)
+        return true;
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    ComPtr<ID3D11Texture2D> color, depth;
+    ComPtr<ID3D11RenderTargetView> target;
+    ComPtr<ID3D11ShaderResourceView> view;
+    ComPtr<ID3D11DepthStencilView> depthView;
+    if (!Check(m_device->CreateTexture2D(&desc, nullptr, &color), L"Scene color") ||
+        !Check(m_device->CreateRenderTargetView(color.Get(), nullptr, &target), L"Scene target") ||
+        !Check(m_device->CreateShaderResourceView(color.Get(), nullptr, &view), L"Scene view"))
+        return false;
+    desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    if (!Check(m_device->CreateTexture2D(&desc, nullptr, &depth), L"Scene depth") ||
+        !Check(m_device->CreateDepthStencilView(depth.Get(), nullptr, &depthView),
+               L"Scene depth view"))
+        return false;
+    m_sceneTarget = std::move(target);
+    m_sceneView = std::move(view);
+    m_sceneDepth = std::move(depthView);
+    m_sceneWidth = width;
+    m_sceneHeight = height;
+    return true;
+}
 bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame,
                                 std::uint64_t* pixelHash)
 {
     if (!m_renderTarget || !m_depth)
         return false;
     std::erase_if(m_meshes, [](const auto& entry) { return entry.second.source.expired(); });
-    ID3D11RenderTargetView* target = m_renderTarget.Get();
-    m_context->OMSetRenderTargets(1, &target, m_depth.Get());
+    ID3D11ShaderResourceView* empty = nullptr;
+    m_context->PSSetShaderResources(0, 1, &empty);
+    ID3D11RenderTargetView* target = m_sceneTarget ? m_sceneTarget.Get() : m_renderTarget.Get();
+    auto* depth = m_sceneDepth ? m_sceneDepth.Get() : m_depth.Get();
+    m_context->OMSetRenderTargets(1, &target, depth);
     constexpr float background[] = {.025f, .10f, .18f, 1};
     m_context->ClearRenderTargetView(target, background);
-    m_context->ClearDepthStencilView(m_depth.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1, 0);
-    D3D11_VIEWPORT viewport{0, 0, static_cast<float>(m_width), static_cast<float>(m_height), 0, 1};
+    m_context->ClearDepthStencilView(depth, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1, 0);
+    D3D11_VIEWPORT viewport{0,
+                            0,
+                            static_cast<float>(m_sceneTarget ? m_sceneWidth : m_width),
+                            static_cast<float>(m_sceneTarget ? m_sceneHeight : m_height),
+                            0,
+                            1};
     m_context->RSSetViewports(1, &viewport);
     m_context->RSSetState(m_meshRasterizer.Get());
     m_context->IASetInputLayout(m_meshLayout.Get());
@@ -370,9 +412,15 @@ bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame,
         m_context->IASetIndexBuffer(mesh->indices.Get(), DXGI_FORMAT_R32_UINT, 0);
         m_context->DrawIndexed(mesh->count, 0, 0);
     }
+    if (m_sceneTarget)
+    {
+        target = m_renderTarget.Get();
+        m_context->OMSetRenderTargets(1, &target, nullptr);
+        m_context->ClearRenderTargetView(target, background);
+    }
     if (m_overlay)
         m_overlay();
-    if (verifyFrame && !VerifyTriangleFrame())
+    if (verifyFrame && !(m_sceneTarget ? VerifySceneView() : VerifyTriangleFrame()))
         return false;
     if (pixelHash && !ReadbackHash(*pixelHash))
         return false;
@@ -383,6 +431,36 @@ bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame,
             return false;
     }
     return Check(m_swapChain->Present(1, 0), L"Present scene");
+}
+bool D3D11Renderer::VerifySceneView()
+{
+    ComPtr<ID3D11Resource> source;
+    m_sceneTarget->GetResource(&source);
+    ComPtr<ID3D11Texture2D> texture, readback;
+    if (FAILED(source.As(&texture)))
+        return false;
+    D3D11_TEXTURE2D_DESC desc{};
+    texture->GetDesc(&desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    if (!Check(m_device->CreateTexture2D(&desc, nullptr, &readback), L"Scene probe"))
+        return false;
+    m_context->CopyResource(readback.Get(), texture.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (!Check(m_context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped), L"Scene probe map"))
+        return false;
+    unsigned visible = 0;
+    for (unsigned y = 0; y < desc.Height; ++y)
+        for (unsigned x = 0; x < desc.Width; ++x)
+        {
+            const auto* p =
+                static_cast<const unsigned char*>(mapped.pData) + y * mapped.RowPitch + x * 4;
+            if (unsigned(p[0]) + p[1] + p[2] > 150)
+                ++visible;
+        }
+    m_context->Unmap(readback.Get(), 0);
+    return visible > 16;
 }
 bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
 {
@@ -533,6 +611,10 @@ void D3D11Renderer::Shutdown() noexcept
     m_meshPs.Reset();
     m_meshVs.Reset();
     m_meshRasterizer.Reset();
+    m_sceneTarget.Reset();
+    m_sceneView.Reset();
+    m_sceneDepth.Reset();
+    m_sceneWidth = m_sceneHeight = 0;
     m_depth.Reset();
     m_renderTarget.Reset();
     m_inputLayout.Reset();

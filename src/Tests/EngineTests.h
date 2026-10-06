@@ -2,7 +2,8 @@
 namespace nereides
 {
 int RunEngineTests();
-}
+int RunEditorWorkflowTest();
+} // namespace nereides
 #include <filesystem>
 namespace nereides
 {

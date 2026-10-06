@@ -26,6 +26,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
     const std::wstring_view arguments(commandLine);
     if (arguments == L"--engine-tests")
         return nereides::RunEngineTests();
+    if (arguments == L"--editor-workflow-test")
+        return nereides::RunEditorWorkflowTest();
     if (arguments.starts_with(L"--model-test "))
     {
         auto path = arguments.substr(13);
@@ -53,6 +55,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
         }
         else if (arguments == L"--resize-smoke-test")
             options.resize = true;
+        else if (arguments == L"--editor-resize-smoke-test")
+        {
+            options.resize = true;
+            options.editor = true;
+        }
         else if (arguments == L"--benchmark")
             options.benchmark = true;
         else

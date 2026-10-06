@@ -27,7 +27,9 @@ vcpkg.json baseline과 triplets/x64-windows-v143.cmake로 Assimp·ImGui·ImGuizm
 2. Debug 또는 Release / x64를 선택한다.
 3. NereidesSandbox를 시작 프로젝트로 두고 F5를 누른다.
 
-에디터에서 객체를 선택해 Transform·판정·매개변수를 편집한다. WASD는 예제 상자 이동, Esc는 정지/복구다. 모델 경로를 넣어 FBX를 가져오고, 클립 버튼으로 재생한다. Save scene / Load scene으로 배치와 설정을 보존한다. Transition preview에서는 2D 재생·스킵·지역 준비 대기를 시험한다.
+처음에는 Edit 모드로 시작한다. Assets에서 모델을 검색해 더블클릭하거나 Scene으로 끌어 배치한다. Browse model로 외부 파일도 선택할 수 있다. Scene 위에서 우클릭 드래그는 회전, 가운데 버튼은 화면 이동, 휠은 확대·축소, F는 선택 객체에 초점 맞추기다. W/E/R로 이동·회전·크기 도구를 고르고 Inspector의 XYZ 값을 편집한다.
+
+Ctrl+Z / Ctrl+Y로 추가·삭제·속성 수정을 복구하고, Ctrl+S 또는 Save로 저장한다. 첫 저장은 파일을 선택하며 Open으로 다시 불러온다. Play에서 예제 동작을 시험하고 Stop / restore로 편집 상태에 돌아온다. 게임 실행 중 Scene 위에서 WASD로 예제 상자를 이동한다. 자세한 순서와 한계는 [팀원용 에디터 사용 안내](docs/stages/10-editor-workflow.md)에 기록했다.
 
 실행 파일 위치에서 프로젝트 루트 또는 배포 data 폴더를 찾아 상대 경로 기준을 맞춘다. MMD와 assets는 각 팀원이 별도로 준비한다. 임시 도형과 내장 전환 미리보기는 외부 에셋 없이 실행된다.
 
@@ -45,6 +47,8 @@ Debug/Release 빌드 후 다음 모드를 실행하며, 실패한 종료 코드�
 | --smoke-test | 최초 삼각형과 배경의 GPU 픽셀 |
 | --scene-smoke-test | 월드/카메라/깊이를 사용하는 3D 출력 |
 | --editor-smoke-test | 에디터와 장면 출력, captures/editor.bmp |
+| --editor-workflow-test | 실제 UI 입력으로 배치·Z 편집·Undo/Redo·한글 경로·저장·Play/Stop 복구 |
+| --editor-resize-smoke-test | Scene 뷰포트를 포함한 900×600 / 1280×720 크기 변경 |
 | --presentation-smoke-test | 2D 미리보기와 전투 정지, captures/presentation.bmp |
 | --resize-smoke-test | 실제 창 크기 변경 후 백버퍼·깊이 버퍼·카메라·픽셀 |
 | --benchmark | 임시 장면 1280×720, 30프레임 예열 후 180프레임 시간·메모리 기록 |
@@ -56,6 +60,6 @@ Release 검증 후 `./scripts/package.ps1`로 새 dist 폴더에 실행 파일·
 
 ## 현재 한계와 다음 통합
 
-렌더러는 기본색과 스키닝을 확인하는 임시 백엔드다. Sherlock 포팅·최종 재질/텍스처·그림자·바다/폭풍은 렌더 담당과 연결한다. 별도 모션 리타게팅, 독립 에디터 뷰포트, Undo/Redo, 고급 재질 도구와 오디오는 아직 없다.
+렌더러는 기본색과 스키닝을 확인하는 임시 백엔드다. Sherlock 포팅·최종 재질/텍스처·그림자·바다/폭풍은 렌더 담당과 연결한다. 독립 Scene 뷰포트와 Undo/Redo는 지원한다. 별도 모션 리타게팅·고급 재질 도구·자동 저장·다중 선택·오디오는 후속 작업이다.
 
 플레이어/보스 규칙과 실제 HUD·세 구역 완주는 콘텐츠 통합이 필요하다. 임시 예제 수치는 게임 밸런스 확정값이 아니다. 2026-11-23 시연, 12-16 내부 완료, 12-18 발표의 합격 범위는 구현 범위 문서를 따른다.

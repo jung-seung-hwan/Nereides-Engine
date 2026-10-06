@@ -22,6 +22,10 @@ public:
     {
         m_input = input;
     }
+    void SetCloseGuard(std::function<bool()> guard)
+    {
+        m_closeGuard = std::move(guard);
+    }
     void SetMessageHandler(std::function<void(HWND, UINT, WPARAM, LPARAM)> handler)
     {
         m_messageHandler = std::move(handler);
@@ -58,6 +62,7 @@ private:
     bool m_minimized = false;
     bool m_focused = false;
     Input* m_input = nullptr;
+    std::function<bool()> m_closeGuard;
     std::function<void(HWND, UINT, WPARAM, LPARAM)> m_messageHandler;
     std::uint32_t m_width = 1280;
     std::uint32_t m_height = 720;

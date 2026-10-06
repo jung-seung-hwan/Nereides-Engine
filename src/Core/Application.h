@@ -20,6 +20,7 @@ public:
     {
         // Also detach callbacks on early initialization/render failure before Editor is destroyed.
         m_window.SetMessageHandler({});
+        m_window.SetCloseGuard({});
         m_renderer.SetOverlay({});
     }
     int Run(HINSTANCE instance, int showCommand, const RunOptions& options);

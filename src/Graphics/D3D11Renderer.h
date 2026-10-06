@@ -22,6 +22,11 @@ public:
 
     bool Initialize(HWND window, std::uint32_t width, std::uint32_t height);
     bool Resize(std::uint32_t width, std::uint32_t height);
+    bool PrepareSceneView(std::uint32_t width, std::uint32_t height);
+    ID3D11ShaderResourceView* SceneView() const
+    {
+        return m_sceneView.Get();
+    }
     bool Render(bool verifyFrame = false);
     bool RenderScene(const RenderFrame& frame, bool verifyFrame = false,
                      std::uint64_t* pixelHash = nullptr);
@@ -55,6 +60,7 @@ private:
     };
     GpuMesh* Upload(const std::shared_ptr<const MeshData>& mesh);
     bool VerifyTriangleFrame();
+    bool VerifySceneView();
     bool ReadbackHash(std::uint64_t& hash);
     bool Check(HRESULT result, const wchar_t* operation);
 
@@ -67,6 +73,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_pixelShader;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> m_inputLayout;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_depth;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_sceneTarget;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sceneView;
+    Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_sceneDepth;
+    std::uint32_t m_sceneWidth = 0, m_sceneHeight = 0;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_meshVs;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_meshPs;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> m_meshLayout;

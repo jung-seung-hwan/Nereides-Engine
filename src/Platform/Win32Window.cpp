@@ -122,6 +122,13 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
         m_messageHandler(window, message, wParam, lParam);
     switch (message)
     {
+    case WM_GETMINMAXINFO: {
+        RECT minimum{0, 0, 900, 600};
+        AdjustWindowRectEx(&minimum, WS_OVERLAPPEDWINDOW, FALSE, 0);
+        auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+        info->ptMinTrackSize = {minimum.right - minimum.left, minimum.bottom - minimum.top};
+        return 0;
+    }
     case WM_SETFOCUS:
         m_focused = true;
         if (m_input)
@@ -198,6 +205,8 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
                                        : L"[Nereides] Size changed.\n");
         return 0;
     case WM_CLOSE:
+        if (m_closeGuard && !m_closeGuard())
+            return 0;
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
