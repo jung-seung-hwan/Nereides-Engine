@@ -21,7 +21,7 @@ public:
     bool Initialize(HWND window, std::uint32_t width, std::uint32_t height);
     bool Resize(std::uint32_t width, std::uint32_t height);
     bool Render(bool verifyFrame = false);
-    bool RenderScene(const RenderFrame& frame, bool verifyFrame = false);
+    bool RenderScene(const RenderFrame& frame, bool verifyFrame = false, std::uint64_t* pixelHash = nullptr);
     void Shutdown() noexcept;
 
 private:
@@ -36,6 +36,7 @@ private:
     };
     GpuMesh* Upload(const std::shared_ptr<const MeshData>& mesh);
     bool VerifyTriangleFrame();
+    bool ReadbackHash(std::uint64_t& hash);
     bool Check(HRESULT result, const wchar_t* operation);
 
     Microsoft::WRL::ComPtr<ID3D11Device> m_device;
@@ -51,6 +52,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_meshPs;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> m_meshLayout;
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_objectConstants;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_skinConstants;
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_meshRasterizer;
     std::map<const MeshData*, GpuMesh> m_meshes;
     std::uint32_t m_width = 0;

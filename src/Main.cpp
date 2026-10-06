@@ -6,6 +6,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
 {
     const std::wstring_view arguments(commandLine);
     if (arguments == L"--engine-tests") return nereides::RunEngineTests();
+    if (arguments.starts_with(L"--model-test "))
+    {
+        auto path=arguments.substr(13);
+        if(path.size()>=2 && path.front()==L'"' && path.back()==L'"') path=path.substr(1,path.size()-2);
+        return nereides::RunModelTest(std::filesystem::path(path));
+    }
     nereides::Application application;
     const bool sceneTest = arguments == L"--scene-smoke-test";
     return application.Run(instance, showCommand, arguments == L"--smoke-test" || sceneTest, sceneTest);

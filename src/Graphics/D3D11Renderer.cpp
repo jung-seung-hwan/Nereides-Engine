@@ -200,13 +200,17 @@ bool D3D11Renderer::CreateMeshPipeline()
         !Check(m_device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, m_meshPs.GetAddressOf()), L"Mesh PS")) return false;
     const D3D11_INPUT_ELEMENT_DESC elements[] = {
         {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,offsetof(MeshVertex,position),D3D11_INPUT_PER_VERTEX_DATA,0},
-        {"COLOR",0,DXGI_FORMAT_R32G32B32_FLOAT,0,offsetof(MeshVertex,color),D3D11_INPUT_PER_VERTEX_DATA,0}
+        {"COLOR",0,DXGI_FORMAT_R32G32B32_FLOAT,0,offsetof(MeshVertex,color),D3D11_INPUT_PER_VERTEX_DATA,0},
+        {"BLENDINDICES",0,DXGI_FORMAT_R32G32B32A32_UINT,0,offsetof(MeshVertex,bones),D3D11_INPUT_PER_VERTEX_DATA,0},
+        {"BLENDWEIGHT",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,offsetof(MeshVertex,weights),D3D11_INPUT_PER_VERTEX_DATA,0}
     };
-    if (!Check(m_device->CreateInputLayout(elements,2,vs->GetBufferPointer(),vs->GetBufferSize(),m_meshLayout.GetAddressOf()),L"Mesh layout")) return false;
+    if (!Check(m_device->CreateInputLayout(elements,4,vs->GetBufferPointer(),vs->GetBufferSize(),m_meshLayout.GetAddressOf()),L"Mesh layout")) return false;
     D3D11_BUFFER_DESC constants{};
     constants.ByteWidth = sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4);
     constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER; constants.Usage = D3D11_USAGE_DEFAULT;
     if (!Check(m_device->CreateBuffer(&constants,nullptr,m_objectConstants.GetAddressOf()),L"Object constants")) return false;
+    constants.ByteWidth = 128 * sizeof(DirectX::XMFLOAT4X4);
+    if (!Check(m_device->CreateBuffer(&constants,nullptr,m_skinConstants.GetAddressOf()),L"Skin constants")) return false;
     D3D11_RASTERIZER_DESC rasterizer{};
     rasterizer.FillMode = D3D11_FILL_SOLID; rasterizer.CullMode = D3D11_CULL_NONE; rasterizer.DepthClipEnable = TRUE;
     return Check(m_device->CreateRasterizerState(&rasterizer,m_meshRasterizer.GetAddressOf()),L"Mesh rasterizer");
@@ -228,7 +232,7 @@ D3D11Renderer::GpuMesh* D3D11Renderer::Upload(const std::shared_ptr<const MeshDa
     if (!Check(m_device->CreateBuffer(&buffer,&data,gpu.indices.GetAddressOf()),L"Upload indices")) return nullptr;
     return &m_meshes.insert_or_assign(mesh.get(),std::move(gpu)).first->second;
 }
-bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame)
+bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame, std::uint64_t* pixelHash)
 {
     if (!m_renderTarget || !m_depth) return false;
     std::erase_if(m_meshes,[](const auto& entry){return entry.second.source.expired();});
@@ -242,9 +246,17 @@ bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame)
     m_context->IASetInputLayout(m_meshLayout.Get()); m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_context->VSSetShader(m_meshVs.Get(),nullptr,0); m_context->PSSetShader(m_meshPs.Get(),nullptr,0);
     ID3D11Buffer* constants=m_objectConstants.Get(); m_context->VSSetConstantBuffers(0,1,&constants);
+    ID3D11Buffer* skin=m_skinConstants.Get(); m_context->VSSetConstantBuffers(1,1,&skin);
     for (const auto& item : frame.items)
     {
         auto* mesh=Upload(item.mesh); if (!mesh) return Check(E_INVALIDARG,L"Invalid render mesh");
+        if(!item.bones.empty())
+        {
+            if(item.bones.size()>128) return Check(E_INVALIDARG,L"Too many skin matrices");
+            std::array<DirectX::XMFLOAT4X4,128> palette{};
+            std::copy(item.bones.begin(),item.bones.end(),palette.begin());
+            m_context->UpdateSubresource(skin,0,nullptr,palette.data(),0,0);
+        }
         struct Constants { DirectX::XMFLOAT4X4 wvp; DirectX::XMFLOAT4 tint; } data{};
         DirectX::XMStoreFloat4x4(&data.wvp,DirectX::XMLoadFloat4x4(&item.world)*
             DirectX::XMLoadFloat4x4(&frame.view)*DirectX::XMLoadFloat4x4(&frame.projection));
@@ -256,7 +268,32 @@ bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame)
         m_context->DrawIndexed(mesh->count,0,0);
     }
     if (verifyFrame && !VerifyTriangleFrame()) return false;
+    if (pixelHash && !ReadbackHash(*pixelHash)) return false;
     return Check(m_swapChain->Present(1,0),L"Present scene");
+}
+bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
+{
+    ComPtr<ID3D11Texture2D> backBuffer,readback;
+    if(!Check(m_swapChain->GetBuffer(0,IID_PPV_ARGS(backBuffer.GetAddressOf())),L"Probe buffer")) return false;
+    D3D11_TEXTURE2D_DESC desc{}; backBuffer->GetDesc(&desc);
+    desc.Usage=D3D11_USAGE_STAGING; desc.BindFlags=0; desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ; desc.MiscFlags=0;
+    if(!Check(m_device->CreateTexture2D(&desc,nullptr,readback.GetAddressOf()),L"Probe staging")) return false;
+    m_context->CopyResource(readback.Get(),backBuffer.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if(!Check(m_context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped),L"Probe map")) return false;
+    hash=14695981039346656037ull; unsigned visible=0;
+    for(unsigned y=0;y<m_height;++y)
+    {
+        const auto* row=static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch;
+        for(unsigned x=0;x<m_width;++x)
+        {
+            const auto* pixel=row+x*4;
+            if(pixel[0]!=6 || pixel[1]!=26 || pixel[2]!=46) ++visible;
+            for(unsigned c=0;c<4;++c) {hash^=pixel[c];hash*=1099511628211ull;}
+        }
+    }
+    m_context->Unmap(readback.Get(),0);
+    return visible>16;
 }
 
 bool D3D11Renderer::Render(bool verifyFrame)
@@ -325,7 +362,7 @@ void D3D11Renderer::Shutdown() noexcept
         m_context->ClearState();
         m_context->Flush();
     }
-    m_meshes.clear(); m_objectConstants.Reset(); m_meshLayout.Reset(); m_meshPs.Reset(); m_meshVs.Reset();
+    m_meshes.clear(); m_skinConstants.Reset(); m_objectConstants.Reset(); m_meshLayout.Reset(); m_meshPs.Reset(); m_meshVs.Reset();
     m_meshRasterizer.Reset(); m_depth.Reset();
     m_renderTarget.Reset();
     m_inputLayout.Reset();

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <DependenciesRoot>$(MSBuildThisFileDirectory)vcpkg_installed\x64-windows-v143\</DependenciesRoot>
+    <DependenciesConfig Condition="'$(Configuration)'=='Debug'">debug\</DependenciesConfig>
+    <AssimpLibrary Condition="'$(Configuration)'=='Debug'">assimp-vc143-mtd.lib</AssimpLibrary>
+    <AssimpLibrary Condition="'$(Configuration)'!='Debug'">assimp-vc143-mt.lib</AssimpLibrary>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile><AdditionalIncludeDirectories>$(DependenciesRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(DependenciesRoot)$(DependenciesConfig)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(AssimpLibrary);%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="CheckNereidesDependencies" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(DependenciesRoot)include\assimp\Importer.hpp')" Text="Install dependencies with scripts/setup-dependencies.ps1 before building." />
+  </Target>
+  <Target Name="CopyNereidesDependencies" AfterTargets="Build">
+    <ItemGroup>
+      <RuntimeDependency Include="$(DependenciesRoot)$(DependenciesConfig)bin\*.dll" />
+      <DependencyNotice Include="$(DependenciesRoot)share\**\copyright" />
+    </ItemGroup>
+    <Copy SourceFiles="@(RuntimeDependency)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(DependencyNotice)" DestinationFiles="@(DependencyNotice->'$(OutDir)third-party\%(RecursiveDir)copyright')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

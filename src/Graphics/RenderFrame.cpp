@@ -1,4 +1,5 @@
 #include "Graphics/RenderFrame.h"
+#include "Resource/Model.h"
 namespace nereides
 {
 RenderFrame CollectRenderFrame(const Scene& scene, ObjectId cameraObject, const Camera& camera, float aspect, double time)
@@ -10,6 +11,9 @@ RenderFrame CollectRenderFrame(const Scene& scene, ObjectId cameraObject, const 
     for (auto id : scene.Objects())
     {
         const auto* object = scene.Find(id);
+        if(scene.Active(id))
+            if(const auto* model=object->Get<ModelComponent>(); model && model->enabled)
+                AppendModelDraws(*model,scene.World(id),frame);
         const auto* mesh = object->Get<MeshComponent>();
         if (!scene.Active(id) || !mesh || !mesh->enabled || !mesh->mesh) continue;
         DrawItem item; item.mesh = mesh->mesh; item.tint = mesh->tint;

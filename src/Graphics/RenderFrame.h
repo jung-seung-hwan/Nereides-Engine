@@ -22,6 +22,7 @@ struct DrawItem
     std::shared_ptr<const MeshData> mesh; // Keeps CPU data alive through this frame.
     DirectX::XMFLOAT4X4 world{};
     DirectX::XMFLOAT4 tint{1,1,1,1};
+    std::vector<DirectX::XMFLOAT4X4> bones;
 };
 struct RenderFrame
 {

@@ -82,16 +82,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\Animation\Timeline.cpp" />
     <ClCompile Include="src\Core\Application.cpp" />
     <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Graphics\D3D11Renderer.cpp" />
     <ClCompile Include="src\Graphics\RenderFrame.cpp" />
     <ClCompile Include="src\Main.cpp" />
     <ClCompile Include="src\Platform\Win32Window.cpp" />
+    <ClCompile Include="src\Resource\Model.cpp" />
     <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Tests\EngineTests.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Animation\Timeline.h" />
     <ClInclude Include="src\Core\Application.h" />
     <ClInclude Include="src\Core\Input.h" />
     <ClInclude Include="src\Core\Log.h" />
@@ -101,10 +104,12 @@
     <ClInclude Include="src\Graphics\RenderFrame.h" />
     <ClInclude Include="src\Graphics\TriangleShaders.h" />
     <ClInclude Include="src\Platform\Win32Window.h" />
+    <ClInclude Include="src\Resource\Model.h" />
     <ClInclude Include="src\Sandbox\MoveComponent.h" />
     <ClInclude Include="src\Scene\Scene.h" />
     <ClInclude Include="src\Tests\EngineTests.h" />
   </ItemGroup>
+  <Import Project="Dependencies.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

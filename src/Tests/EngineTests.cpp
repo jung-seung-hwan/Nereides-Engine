@@ -4,6 +4,11 @@
 #include "Core/Log.h"
 #include "Scene/Scene.h"
 #include "Graphics/RenderFrame.h"
+#include "Resource/Model.h"
+#include "Animation/Timeline.h"
+#include "Graphics/D3D11Renderer.h"
+#include "Platform/Win32Window.h"
+#include <fstream>
 #include <functional>
 #include <cmath>
 #include <limits>
@@ -101,10 +106,105 @@ void TestRenderInput()
     scene.Clear(); Require(!weak.expired(),"frame keeps model alive");
     frame.items.clear(); Require(weak.expired(),"model released after final frame");
 }
+void TestAnimation()
+{
+    auto model=std::make_shared<ModelData>(); model->nodes.push_back({"root",-1,{}});
+    AnimationClip clip; clip.name="linear"; clip.duration=2;
+    NodeTrack track; track.node=0; track.positions={ {0,{0,0,0}}, {2,{4,0,0}} };
+    clip.tracks.push_back(track); model->clips.push_back(clip);
+    AnimationPlayer player(model); Require(player.Play(0,false),"play valid clip"); player.Advance(1);
+    Require(Near(player.LocalPose()[0].position.x,2),"animation interpolation");
+    player.Advance(8); Require(player.Finished() && Near(player.LocalPose()[0].position.x,4),"clip completion clamps");
+    player.Play(0,true,1); player.Advance(.5);
+    Require(Near(player.LocalPose()[0].position.x,2.5),"snapshot crossfade");
+    Require(!player.Play(90,false),"missing animation rejected");
+    Timeline events; events.Start(1,{{0,"begin"},{.2,"hit on"},{.4,"hit off"},{1,"end"}});
+    Require(events.Advance(.8).size()==3,"low FPS crosses all event markers");
+    Require(events.Advance(1).size()==1 && events.Advance(1).empty(),"completion event exactly once");
+    events.Start(1,{{.5,"hit"}}); const auto generation=events.Generation(); events.Cancel();
+    Require(events.Advance(1).empty() && events.Generation()!=generation,"cancel invalidates action events");
+    TransformKey a,b; b.time=1; b.value.position.x=10;
+    Require(Near(EvaluateTrajectory({a,b},.25).position.x,2.5),"independent sword trajectory");
+}
+void TestModelCache()
+{
+    std::filesystem::create_directories("logs");
+    const auto path=std::filesystem::path("logs/test-model.obj");
+    { std::ofstream file(path); file<<"o triangle\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"; }
+    ModelCache cache; auto first=cache.Load(path),second=cache.Load(path);
+    Require(first==second && !first->parts.empty(),"model cache shares owned import data");
+    Require(first->parts[0].mesh->vertices.size()==3,"import data survives importer destruction");
+    std::weak_ptr<const ModelData> weak=first; first.reset(); second.reset(); cache.Prune();
+    Require(weak.expired(),"cache does not retain unused model");
+    std::filesystem::remove(path);
+}
 }
 int RunEngineTests()
 {
-    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input"); return 0; }
+    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); TestAnimation(); TestModelCache(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input, animation, model cache"); return 0; }
     catch (const std::exception& error) { Log::Write(LogLevel::Error, error.what()); return 1; }
+}
+int RunModelTest(const std::filesystem::path& path)
+{
+    try
+    {
+        ModelCache cache; const auto model=cache.Load(path);
+        Require(!model->parts.empty(),"model probe requires mesh parts");
+        ModelComponent component(model);
+        for(std::size_t clip=0;clip<model->clips.size();++clip)
+        {
+            component.player.Play(clip,false);
+            for(int sample=0;sample<5;++sample)
+            {
+                component.player.Advance(model->clips[clip].duration/4);
+                RenderFrame frame; AppendModelDraws(component,DirectX::XMMatrixIdentity(),frame);
+                Require(!frame.items.empty(),"model draws missing");
+                for(const auto& item:frame.items)
+                    for(const auto& bone:item.bones)
+                        for(const auto& row:bone.m) for(float value:row) Require(std::isfinite(value),"nonfinite bone matrix");
+            }
+        }
+        using namespace DirectX;
+        Win32Window window;
+        Require(window.Create(GetModuleHandleW(nullptr),SW_HIDE),"probe window");
+        D3D11Renderer renderer;
+        Require(renderer.Initialize(window.Handle(),window.Width(),window.Height()),"probe renderer");
+        if(!model->clips.empty()) component.player.Play(0,true);
+        RenderFrame frame; AppendModelDraws(component,XMMatrixIdentity(),frame);
+        XMFLOAT3 low{FLT_MAX,FLT_MAX,FLT_MAX}, high{-FLT_MAX,-FLT_MAX,-FLT_MAX};
+        for(const auto& item:frame.items) for(const auto& vertex:item.mesh->vertices)
+        {
+            auto p=XMLoadFloat3(&vertex.position);
+            if(!item.bones.empty())
+            {
+                auto skinned=XMVectorZero();
+                for(unsigned i=0;i<4;++i) if(vertex.weights[i]>0)
+                    skinned+=XMVector3TransformCoord(p,XMLoadFloat4x4(&item.bones.at(vertex.bones[i])))*vertex.weights[i];
+                p=skinned;
+            }
+            p=XMVector3TransformCoord(p,XMLoadFloat4x4(&item.world));
+            XMFLOAT3 point; XMStoreFloat3(&point,p);
+            Require(std::isfinite(point.x)&&std::isfinite(point.y)&&std::isfinite(point.z),"nonfinite skinned position");
+            low.x=std::min(low.x,point.x);low.y=std::min(low.y,point.y);low.z=std::min(low.z,point.z);
+            high.x=std::max(high.x,point.x);high.y=std::max(high.y,point.y);high.z=std::max(high.z,point.z);
+        }
+        const auto center=(XMLoadFloat3(&low)+XMLoadFloat3(&high))*.5f;
+        const float radius=std::max(.01f,XMVectorGetX(XMVector3Length(XMLoadFloat3(&high)-XMLoadFloat3(&low)))*.5f);
+        const auto eye=center+XMVectorSet(0,0,-radius*3,0);
+        XMStoreFloat4x4(&frame.view,XMMatrixLookAtLH(eye,center,XMVectorSet(0,1,0,0)));
+        XMStoreFloat4x4(&frame.projection,XMMatrixPerspectiveFovLH(XM_PIDIV4,float(window.Width())/window.Height(),radius*.01f,radius*10));
+        std::uint64_t first=0,second=0;
+        Require(renderer.RenderScene(frame,false,&first),"model GPU visibility");
+        if(!model->clips.empty())
+        {
+            component.player.Advance(model->clips[0].duration*.37);
+            frame.items.clear(); AppendModelDraws(component,XMMatrixIdentity(),frame);
+            Require(renderer.RenderScene(frame,false,&second),"animated model GPU visibility");
+            Log::Write(LogLevel::Info,std::string("GPU animation pixel change=")+(first!=second ? "yes" : "no (inspect static clip)"));
+        }
+        Log::Write(LogLevel::Info,"Imported bounds extent "+std::to_string(high.x-low.x)+", "+std::to_string(high.y-low.y)+", "+std::to_string(high.z-low.z));
+        Log::Write(LogLevel::Info,"Model probe PASS "+path.string()); return 0;
+    }
+    catch(const std::exception& error) { Log::Write(LogLevel::Error,error.what()); return 1; }
 }
 }
