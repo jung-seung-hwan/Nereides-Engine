@@ -1,5 +1,6 @@
 #include "Core/Application.h"
 #include "Core/Log.h"
+#include "Sandbox/MoveComponent.h"
 #include <chrono>
 #include <string>
 namespace nereides
@@ -10,6 +11,9 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest)
     if (!m_window.Create(instance, smokeTest ? SW_HIDE : showCommand)) return 1;
     if (!m_renderer.Initialize(m_window.Handle(), m_window.Width(), m_window.Height())) return 1;
     Log::Write(LogLevel::Info, "Application initialized");
+    auto& player = m_scene.Create("Example player");
+    m_player = player.Id();
+    player.Add<MoveComponent>();
     auto previous = std::chrono::steady_clock::now();
     int exitCode = 0;
     bool frameVerified = false;
@@ -32,13 +36,14 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest)
         const bool menuPause = m_time.paused;
         m_time.paused = menuPause || (!smokeTest && !m_window.IsFocused());
         m_time.Advance(delta); m_time.paused = menuPause;
+        m_scene.Update({m_input, m_time});
         if (!m_renderer.Resize(m_window.Width(), m_window.Height()) ||
             !m_renderer.Render(smokeTest && !frameVerified)) return 1;
         frameVerified = true;
         if (!smokeTest)
         {
             const auto title = L"Nereides | combat " + std::to_wstring(m_time.combat.elapsed) +
-                L" | escape " + std::to_wstring(m_time.escape.elapsed) + L" | Esc pause";
+                L" | x " + std::to_wstring(m_scene.Find(m_player)->transform.position.x) + L" | WASD / Esc pause";
             SetWindowTextW(m_window.Handle(), title.c_str());
         }
         if (smokeTest && m_time.real.elapsed >= 0.5) PostMessageW(m_window.Handle(), WM_CLOSE, 0, 0);

@@ -3,6 +3,7 @@
 #include "Core/Time.h"
 #include "Platform/Win32Window.h"
 #include "Graphics/D3D11Renderer.h"
+#include "Scene/Scene.h"
 namespace nereides
 {
 class Application final
@@ -15,5 +16,7 @@ private:
     Time m_time;
     Win32Window m_window;
     D3D11Renderer m_renderer;
+    Scene m_scene;
+    ObjectId m_player = 0;
 };
 }

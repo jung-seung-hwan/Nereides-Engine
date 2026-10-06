@@ -2,6 +2,8 @@
 #include "Core/Input.h"
 #include "Core/Time.h"
 #include "Core/Log.h"
+#include "Scene/Scene.h"
+#include <functional>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -38,10 +40,54 @@ void TestTime()
     Require(Near(time.real.elapsed, 9), "invalid time"); Require(!time.SetScale(-1), "negative scale");
     time.Reset(); Require(time.frame == 0 && time.real.elapsed == 0, "restart clocks");
 }
+class TestAction final : public Component
+{
+public:
+    explicit TestAction(std::function<void(Object&, Scene&)> action) : action(std::move(action)) {}
+    void Update(Object& object, Scene& scene, const FrameContext&) override { action(object, scene); }
+    std::function<void(Object&, Scene&)> action;
+};
+void TestScene()
+{
+    Scene scene; Input input; Time time;
+    const auto parent = scene.Create("parent").Id();
+    const auto child = scene.Create("child").Id();
+    scene.Find(parent)->transform.position = {10,0,0};
+    scene.Find(child)->transform.position = {2,0,0};
+    Require(scene.SetParent(child, parent) && !scene.SetParent(parent, child), "parent cycles rejected");
+    DirectX::XMFLOAT4X4 world; DirectX::XMStoreFloat4x4(&world, scene.World(child));
+    Require(Near(world._41,12), "parent world transform");
+    scene.Find(parent)->enabled = false; Require(!scene.Active(child), "inactive parent");
+    scene.Find(parent)->enabled = true;
+    int called = 0;
+    scene.Find(parent)->Add<TestAction>([child](Object&, Scene& s) { s.Destroy(child); });
+    scene.Find(child)->Add<TestAction>([&](Object&, Scene&) { ++called; });
+    scene.Update({input,time}); Require(called == 0 && !scene.Find(child), "deleted peer must not update");
+    scene.Clear(); Require(!scene.Find(parent), "old handle invalid after clear");
+    auto& spawner = scene.Create("spawner");
+    Require(spawner.Id() != parent, "object identifiers not reused");
+    spawner.Add<TestAction>([&](Object& self, Scene& s) {
+        s.Create("next frame").Add<TestAction>([&](Object&, Scene&) { ++called; });
+        self.Remove<TestAction>();
+    });
+    scene.Update({input,time}); Require(called == 0, "new object waits a frame");
+    scene.Update({input,time}); Require(called == 1, "deferred object updates and component removed");
+    scene.Clear();
+    auto& resetter = scene.Create("resetter");
+    resetter.Add<TestAction>([](Object&, Scene& s) { s.Clear(); });
+    scene.Update({input,time}); Require(scene.Objects().empty(), "clear during update is safe");
+    auto& cameraObject = scene.Create("camera"); cameraObject.transform.position = {0,0,-5};
+    Camera camera;
+    DirectX::XMStoreFloat4x4(&world, camera.View(scene, cameraObject.Id()));
+    Require(Near(world._43,5), "camera inverse world");
+    bool rejected = false; try { camera.Projection(0); } catch (const std::invalid_argument&) { rejected = true; }
+    Require(rejected, "invalid camera aspect");
+    scene.Destroy(cameraObject.Id()); scene.Flush();
+}
 }
 int RunEngineTests()
 {
-    try { TestInput(); TestTime(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time"); return 0; }
+    try { TestInput(); TestTime(); TestScene(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene"); return 0; }
     catch (const std::exception& error) { Log::Write(LogLevel::Error, error.what()); return 1; }
 }
 }
