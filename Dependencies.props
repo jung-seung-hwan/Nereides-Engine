@@ -6,12 +6,14 @@
     <DependenciesConfig Condition="'$(Configuration)'=='Debug'">debug\</DependenciesConfig>
     <AssimpLibrary Condition="'$(Configuration)'=='Debug'">assimp-vc143-mtd.lib</AssimpLibrary>
     <AssimpLibrary Condition="'$(Configuration)'!='Debug'">assimp-vc143-mt.lib</AssimpLibrary>
+    <ImGuiLibrary Condition="'$(Configuration)'=='Debug'">imguid.lib</ImGuiLibrary>
+    <ImGuiLibrary Condition="'$(Configuration)'!='Debug'">imgui.lib</ImGuiLibrary>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile><AdditionalIncludeDirectories>$(DependenciesRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <Link>
       <AdditionalLibraryDirectories>$(DependenciesRoot)$(DependenciesConfig)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(AssimpLibrary);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(AssimpLibrary);$(ImGuiLibrary);imguizmo.lib;dwmapi.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Target Name="CheckNereidesDependencies" BeforeTargets="PrepareForBuild">

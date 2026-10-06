@@ -14,6 +14,7 @@ struct MeshVertex
 };
 struct MeshData
 {
+    bool builtinCube = false;
     std::vector<MeshVertex> vertices;
     std::vector<unsigned> indices;
 };

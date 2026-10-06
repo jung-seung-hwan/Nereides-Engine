@@ -7,6 +7,8 @@
 #include <cstdint>
 #include "Graphics/RenderFrame.h"
 #include <map>
+#include <functional>
+#include <filesystem>
 
 namespace nereides
 {
@@ -23,6 +25,10 @@ public:
     bool Render(bool verifyFrame = false);
     bool RenderScene(const RenderFrame& frame, bool verifyFrame = false, std::uint64_t* pixelHash = nullptr);
     void Shutdown() noexcept;
+    ID3D11Device* Device() const {return m_device.Get();}
+    ID3D11DeviceContext* Context() const {return m_context.Get();}
+    void SetOverlay(std::function<void()> draw) {m_overlay=std::move(draw);}
+    void RequestCapture(std::filesystem::path path) {m_capturePath=std::move(path);}
 
 private:
     bool CreateBackBuffer();
@@ -55,6 +61,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_skinConstants;
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_meshRasterizer;
     std::map<const MeshData*, GpuMesh> m_meshes;
+    std::function<void()> m_overlay;
+    std::filesystem::path m_capturePath;
     std::uint32_t m_width = 0;
     std::uint32_t m_height = 0;
 };

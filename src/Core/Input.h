@@ -29,6 +29,15 @@ public:
         m_down.fill(false); BeginFrame();
     }
     void AddMouseDelta(int x, int y) noexcept { if (m_focused) { m_mouseX += x; m_mouseY += y; } }
+    void Capture(bool keyboard,bool mouse) noexcept
+    {
+        for(unsigned key=0;key<256;++key) if((key<8 ? mouse : keyboard))
+        {
+            m_blocked[key]=m_blocked[key]||m_down[key];
+            m_down[key]=m_pressed[key]=m_released[key]=false;
+        }
+        if(mouse) m_mouseX=m_mouseY=m_wheel=0;
+    }
     void AddWheel(int amount) noexcept { if (m_focused) m_wheel += amount; }
     bool Held(unsigned key) const noexcept { return key < 256 && m_down[key]; }
     bool Pressed(unsigned key) const noexcept { return key < 256 && m_pressed[key]; }

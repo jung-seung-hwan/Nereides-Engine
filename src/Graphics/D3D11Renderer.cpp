@@ -3,6 +3,7 @@
 #include "Graphics/MeshShaders.h"
 #include <algorithm>
 #include <limits>
+#include <fstream>
 
 #include <d3dcompiler.h>
 #include <d3d11sdklayers.h>
@@ -267,8 +268,10 @@ bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame, std:
         m_context->IASetIndexBuffer(mesh->indices.Get(),DXGI_FORMAT_R32_UINT,0);
         m_context->DrawIndexed(mesh->count,0,0);
     }
+    if(m_overlay) m_overlay();
     if (verifyFrame && !VerifyTriangleFrame()) return false;
     if (pixelHash && !ReadbackHash(*pixelHash)) return false;
+    if(!pixelHash && !m_capturePath.empty()){std::uint64_t hash=0;if(!ReadbackHash(hash))return false;}
     return Check(m_swapChain->Present(1,0),L"Present scene");
 }
 bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
@@ -282,6 +285,15 @@ bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if(!Check(m_context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped),L"Probe map")) return false;
     hash=14695981039346656037ull; unsigned visible=0;
+    std::ofstream capture;
+    if(!m_capturePath.empty())
+    {
+        std::error_code error;std::filesystem::create_directories(m_capturePath.parent_path(),error);
+        capture.open(m_capturePath,std::ios::binary);
+        BITMAPFILEHEADER file{};file.bfType=0x4d42;file.bfOffBits=sizeof(file)+sizeof(BITMAPINFOHEADER);file.bfSize=file.bfOffBits+m_width*m_height*4;
+        BITMAPINFOHEADER info{};info.biSize=sizeof(info);info.biWidth=static_cast<LONG>(m_width);info.biHeight=-static_cast<LONG>(m_height);info.biPlanes=1;info.biBitCount=32;info.biCompression=BI_RGB;
+        capture.write(reinterpret_cast<const char*>(&file),sizeof(file));capture.write(reinterpret_cast<const char*>(&info),sizeof(info));
+    }
     for(unsigned y=0;y<m_height;++y)
     {
         const auto* row=static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch;
@@ -290,9 +302,14 @@ bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
             const auto* pixel=row+x*4;
             if(pixel[0]!=6 || pixel[1]!=26 || pixel[2]!=46) ++visible;
             for(unsigned c=0;c<4;++c) {hash^=pixel[c];hash*=1099511628211ull;}
+            if(capture.is_open()){const unsigned char bgra[]={pixel[2],pixel[1],pixel[0],pixel[3]};capture.write(reinterpret_cast<const char*>(bgra),4);}
         }
     }
     m_context->Unmap(readback.Get(),0);
+    if(!m_capturePath.empty())
+    {
+        capture.flush();const bool ok=bool(capture);m_capturePath.clear();if(!ok)return false;
+    }
     return visible>16;
 }
 

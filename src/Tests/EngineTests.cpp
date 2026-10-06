@@ -9,6 +9,7 @@
 #include "Graphics/D3D11Renderer.h"
 #include "Platform/Win32Window.h"
 #include "Collision/Collision.h"
+#include "Data/SceneIO.h"
 #include <fstream>
 #include <functional>
 #include <cmath>
@@ -164,10 +165,28 @@ void TestCollision()
     HitLedger ledger;Require(ledger.Record(7,9)&&!ledger.Record(7,9)&&ledger.Record(7,10),"attack target duplicate policy");
     ledger.End(7);Require(ledger.Record(7,9),"attack cleanup");
 }
+void TestSceneIO()
+{
+    Scene scene;ModelCache cache;
+    auto camera=scene.Create("camera").Id();auto player=scene.Create("player").Id();
+    auto* object=scene.Find(player);object->transform.position={1,2,3};object->Add<MeshComponent>(MakeCube());object->Add<Collider>().radius=2;
+    object->Add<Parameters>().values["duration"]={3,.1,10};scene.SetParent(player,camera);
+    const std::filesystem::path path="logs/test-scene.json";
+    SceneIO::Save(scene,camera,player,path);auto loaded=SceneIO::Load(path,cache);
+    Require(loaded.scene.Objects().size()==2 && loaded.player!=player,"load remaps object handles");
+    Require(loaded.scene.Find(loaded.player)->Parent()==loaded.camera,"load restores hierarchy");
+    Require(Near(loaded.scene.Find(loaded.player)->transform.position.z,3),"load restores transform");
+    Require(Near(loaded.scene.Find(loaded.player)->Get<Parameters>()->values.at("duration").value,3),"load restores parameters");
+    SceneIO::Save(loaded.scene,loaded.camera,loaded.player,path); // Atomic replacement of an existing file.
+    {std::ofstream file(path);file<<"{\"version\":999}";}
+    bool failed=false;try{SceneIO::Load(path,cache);}catch(const std::exception&){failed=true;}
+    Require(failed && loaded.scene.Find(loaded.player),"failed load preserves live scene");
+    std::filesystem::remove(path);
+}
 }
 int RunEngineTests()
 {
-    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); TestAnimation(); TestModelCache(); TestCollision(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input, animation, model cache, collision"); return 0; }
+    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); TestAnimation(); TestModelCache(); TestCollision(); TestSceneIO(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input, animation, model cache, collision, scene IO"); return 0; }
     catch (const std::exception& error) { Log::Write(LogLevel::Error, error.what()); return 1; }
 }
 int RunModelTest(const std::filesystem::path& path)

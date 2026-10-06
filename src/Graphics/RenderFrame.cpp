@@ -25,6 +25,7 @@ RenderFrame CollectRenderFrame(const Scene& scene, ObjectId cameraObject, const 
 std::shared_ptr<const MeshData> MakeCube()
 {
     auto mesh = std::make_shared<MeshData>();
+    mesh->builtinCube = true;
     for (unsigned i = 0; i < 8; ++i)
     {
         MeshVertex v;

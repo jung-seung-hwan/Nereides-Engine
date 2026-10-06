@@ -1,5 +1,6 @@
 #include "Core/Application.h"
 #include "Tests/EngineTests.h"
+#include "Core/Log.h"
 #include <string_view>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCommand)
@@ -13,6 +14,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
         return nereides::RunModelTest(std::filesystem::path(path));
     }
     nereides::Application application;
-    const bool sceneTest = arguments == L"--scene-smoke-test";
-    return application.Run(instance, showCommand, arguments == L"--smoke-test" || sceneTest, sceneTest);
+    const bool editorTest = arguments == L"--editor-smoke-test";
+    const bool sceneTest = arguments == L"--scene-smoke-test" || editorTest;
+    try {return application.Run(instance, showCommand, arguments == L"--smoke-test" || sceneTest, sceneTest,editorTest);}
+    catch(const std::exception& error){nereides::Log::Write(nereides::LogLevel::Error,error.what());return 1;}
 }

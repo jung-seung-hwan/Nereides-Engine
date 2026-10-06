@@ -5,7 +5,7 @@
 #include <string>
 namespace nereides
 {
-int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest)
+int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest, bool editorTest)
 {
     m_window.SetInput(&m_input);
     if (!m_window.Create(instance, smokeTest ? SW_HIDE : showCommand)) return 1;
@@ -27,6 +27,14 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
     ground.Add<MeshComponent>(cube).tint = {.12f,.35f,.4f,1};
     auto& camera = m_scene.Create("Example camera");
     m_camera = camera.Id(); camera.transform.position = {0,1,-6};
+    auto& parameters=target.Add<Parameters>();parameters.values["Example weakpoint duration"]={5,0.1,60};
+    const bool editorEnabled=!smokeTest||editorTest;
+    if(editorEnabled)
+    {
+        if(!m_editor.Initialize(m_window.Handle(),m_renderer.Device(),m_renderer.Context()))return 1;
+        m_window.SetMessageHandler([this](HWND w,UINT m,WPARAM p,LPARAM l){m_editor.Message(w,m,p,l);});
+        m_renderer.SetOverlay([this]{m_editor.Render();});
+    }
     auto previous = std::chrono::steady_clock::now();
     int exitCode = 0;
     bool frameVerified = false;
@@ -41,6 +49,8 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
         {
             WaitMessage(); previous = std::chrono::steady_clock::now(); continue;
         }
+        if(editorEnabled && m_editor.Begin(m_scene,m_camera,m_player,m_cameraData,m_time,m_input,m_collision))
+        {m_collision.Reset();m_input.DiscardHeld();}
         if (m_input.Pressed(VK_ESCAPE))
         {
             m_time.paused = !m_time.paused; m_input.DiscardHeld();
@@ -53,6 +63,8 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
         const auto contacts=m_collision.Step(m_scene,m_time.combat.elapsed-m_time.combat.delta,m_time.combat.elapsed);
         for(const auto& contact:contacts) if(contact.kind==ContactKind::Enter)
             Log::Write(LogLevel::Info,"Trigger entered at "+std::to_string(contact.time));
+        if(editorEnabled)m_editor.DrawDebug(m_scene,m_camera,m_cameraData,m_collision);
+        if(editorTest && m_time.frame==3)m_renderer.RequestCapture("captures/editor.bmp");
         if (!m_renderer.Resize(m_window.Width(), m_window.Height())) return 1;
         if (smokeTest && !sceneTest)
         {
@@ -68,11 +80,12 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
         if (!smokeTest)
         {
             const auto title = L"Nereides | combat " + std::to_wstring(m_time.combat.elapsed) +
-                L" | x " + std::to_wstring(m_scene.Find(m_player)->transform.position.x) + L" | WASD / Esc pause";
+                L" | WASD / Esc pause";
             SetWindowTextW(m_window.Handle(), title.c_str());
         }
         if (smokeTest && m_time.real.elapsed >= 0.5) PostMessageW(m_window.Handle(), WM_CLOSE, 0, 0);
     }
+    m_renderer.SetOverlay({});m_window.SetMessageHandler({});
     Log::Write(LogLevel::Info, "Application stopped"); return exitCode;
 }
 }

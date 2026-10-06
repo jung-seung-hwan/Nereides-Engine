@@ -54,6 +54,12 @@ public:
     {
         if (auto* value = Get<T>()) { value->enabled = false; value->m_removed = true; }
     }
+    std::vector<const Component*> Components() const
+    {
+        std::vector<const Component*> result;
+        for(const auto& component:m_components) if(!component->m_removed) result.push_back(component.get());
+        return result;
+    }
     Transform transform;
     bool enabled = true;
 private:

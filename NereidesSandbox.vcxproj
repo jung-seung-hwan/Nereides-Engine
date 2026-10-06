@@ -86,6 +86,8 @@
     <ClCompile Include="src\Collision\Collision.cpp" />
     <ClCompile Include="src\Core\Application.cpp" />
     <ClCompile Include="src\Core\Log.cpp" />
+    <ClCompile Include="src\Data\SceneIO.cpp" />
+    <ClCompile Include="src\Editor\Editor.cpp" />
     <ClCompile Include="src\Graphics\D3D11Renderer.cpp" />
     <ClCompile Include="src\Graphics\RenderFrame.cpp" />
     <ClCompile Include="src\Main.cpp" />
@@ -101,6 +103,8 @@
     <ClInclude Include="src\Core\Input.h" />
     <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Time.h" />
+    <ClInclude Include="src\Data\SceneIO.h" />
+    <ClInclude Include="src\Editor\Editor.h" />
     <ClInclude Include="src\Graphics\D3D11Renderer.h" />
     <ClInclude Include="src\Graphics\MeshShaders.h" />
     <ClInclude Include="src\Graphics\RenderFrame.h" />

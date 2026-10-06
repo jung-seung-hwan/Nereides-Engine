@@ -114,6 +114,7 @@ LRESULT CALLBACK Win32Window::WindowProc(HWND window, UINT message, WPARAM wPara
 
 LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if(m_messageHandler) m_messageHandler(window,message,wParam,lParam);
     switch (message)
     {
     case WM_SETFOCUS:
