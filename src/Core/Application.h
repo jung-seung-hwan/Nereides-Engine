@@ -9,7 +9,7 @@ namespace nereides
 class Application final
 {
 public:
-    int Run(HINSTANCE instance, int showCommand, bool smokeTest);
+    int Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest = false);
 private:
     // Reverse destruction releases GPU resources before the window.
     Input m_input;
@@ -18,5 +18,7 @@ private:
     D3D11Renderer m_renderer;
     Scene m_scene;
     ObjectId m_player = 0;
+    ObjectId m_camera = 0;
+    Camera m_cameraData;
 };
 }

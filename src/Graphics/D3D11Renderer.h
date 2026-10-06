@@ -5,6 +5,8 @@
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include "Graphics/RenderFrame.h"
+#include <map>
 
 namespace nereides
 {
@@ -19,11 +21,20 @@ public:
     bool Initialize(HWND window, std::uint32_t width, std::uint32_t height);
     bool Resize(std::uint32_t width, std::uint32_t height);
     bool Render(bool verifyFrame = false);
+    bool RenderScene(const RenderFrame& frame, bool verifyFrame = false);
     void Shutdown() noexcept;
 
 private:
     bool CreateBackBuffer();
     bool CreateTriangle();
+    bool CreateMeshPipeline();
+    struct GpuMesh
+    {
+        std::weak_ptr<const MeshData> source;
+        Microsoft::WRL::ComPtr<ID3D11Buffer> vertices, indices;
+        UINT count = 0;
+    };
+    GpuMesh* Upload(const std::shared_ptr<const MeshData>& mesh);
     bool VerifyTriangleFrame();
     bool Check(HRESULT result, const wchar_t* operation);
 
@@ -35,6 +46,13 @@ private:
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_pixelShader;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> m_inputLayout;
+    Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_depth;
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> m_meshVs;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> m_meshPs;
+    Microsoft::WRL::ComPtr<ID3D11InputLayout> m_meshLayout;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_objectConstants;
+    Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_meshRasterizer;
+    std::map<const MeshData*, GpuMesh> m_meshes;
     std::uint32_t m_width = 0;
     std::uint32_t m_height = 0;
 };

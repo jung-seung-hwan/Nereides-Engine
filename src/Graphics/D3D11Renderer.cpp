@@ -1,5 +1,8 @@
 #include "Graphics/D3D11Renderer.h"
 #include "Graphics/TriangleShaders.h"
+#include "Graphics/MeshShaders.h"
+#include <algorithm>
+#include <limits>
 
 #include <d3dcompiler.h>
 #include <d3d11sdklayers.h>
@@ -89,6 +92,7 @@ bool D3D11Renderer::Initialize(HWND window, std::uint32_t width, std::uint32_t h
     m_height = height;
     if (!CreateBackBuffer()) return false;
     if (!CreateTriangle()) return false;
+    if (!CreateMeshPipeline()) return false;
     OutputDebugStringW(L"[Nereides] DX11 renderer initialized.\n");
     return true;
 }
@@ -100,6 +104,13 @@ bool D3D11Renderer::CreateBackBuffer()
         L"GetBuffer")) return false;
     if (!Check(m_device->CreateRenderTargetView(backBuffer.Get(), nullptr,
         m_renderTarget.GetAddressOf()), L"CreateRenderTargetView")) return false;
+    D3D11_TEXTURE2D_DESC depth{};
+    depth.Width = m_width; depth.Height = m_height;
+    depth.MipLevels = depth.ArraySize = 1; depth.SampleDesc.Count = 1;
+    depth.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; depth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    ComPtr<ID3D11Texture2D> texture;
+    if (!Check(m_device->CreateTexture2D(&depth, nullptr, texture.GetAddressOf()), L"Create depth") ||
+        !Check(m_device->CreateDepthStencilView(texture.Get(), nullptr, m_depth.GetAddressOf()), L"Create DSV")) return false;
 #if defined(_DEBUG)
     constexpr char name[] = "Nereides.BackBufferRTV";
     if (!Check(m_renderTarget->SetPrivateData(WKPDID_D3DDebugObjectName,
@@ -114,6 +125,7 @@ bool D3D11Renderer::Resize(std::uint32_t width, std::uint32_t height)
     if (width == m_width && height == m_height) return true;
     m_context->OMSetRenderTargets(0, nullptr, nullptr);
     m_renderTarget.Reset();
+    m_depth.Reset();
     if (!Check(m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0),
         L"ResizeBuffers")) return false;
     m_width = width;
@@ -169,6 +181,82 @@ bool D3D11Renderer::CreateTriangle()
     };
     return Check(m_device->CreateInputLayout(elements, 2, vertexCode->GetBufferPointer(),
         vertexCode->GetBufferSize(), m_inputLayout.GetAddressOf()), L"CreateInputLayout");
+}
+
+bool D3D11Renderer::CreateMeshPipeline()
+{
+    ComPtr<ID3DBlob> vs, ps, errors;
+    for (unsigned i = 0; i < 2; ++i)
+    {
+        auto& code = i == 0 ? vs : ps;
+        errors.Reset();
+        const HRESULT result = D3DCompile(kMeshShader, sizeof(kMeshShader)-1, "MeshShaders", nullptr, nullptr,
+            i == 0 ? "VSMain" : "PSMain", i == 0 ? "vs_5_0" : "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0,
+            code.GetAddressOf(), errors.GetAddressOf());
+        if (errors) OutputDebugStringA(static_cast<const char*>(errors->GetBufferPointer()));
+        if (!Check(result, L"Compile mesh shader")) return false;
+    }
+    if (!Check(m_device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, m_meshVs.GetAddressOf()), L"Mesh VS") ||
+        !Check(m_device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, m_meshPs.GetAddressOf()), L"Mesh PS")) return false;
+    const D3D11_INPUT_ELEMENT_DESC elements[] = {
+        {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,offsetof(MeshVertex,position),D3D11_INPUT_PER_VERTEX_DATA,0},
+        {"COLOR",0,DXGI_FORMAT_R32G32B32_FLOAT,0,offsetof(MeshVertex,color),D3D11_INPUT_PER_VERTEX_DATA,0}
+    };
+    if (!Check(m_device->CreateInputLayout(elements,2,vs->GetBufferPointer(),vs->GetBufferSize(),m_meshLayout.GetAddressOf()),L"Mesh layout")) return false;
+    D3D11_BUFFER_DESC constants{};
+    constants.ByteWidth = sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4);
+    constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER; constants.Usage = D3D11_USAGE_DEFAULT;
+    if (!Check(m_device->CreateBuffer(&constants,nullptr,m_objectConstants.GetAddressOf()),L"Object constants")) return false;
+    D3D11_RASTERIZER_DESC rasterizer{};
+    rasterizer.FillMode = D3D11_FILL_SOLID; rasterizer.CullMode = D3D11_CULL_NONE; rasterizer.DepthClipEnable = TRUE;
+    return Check(m_device->CreateRasterizerState(&rasterizer,m_meshRasterizer.GetAddressOf()),L"Mesh rasterizer");
+}
+D3D11Renderer::GpuMesh* D3D11Renderer::Upload(const std::shared_ptr<const MeshData>& mesh)
+{
+    if (!mesh || mesh->vertices.empty() || mesh->indices.empty()) return nullptr;
+    if (mesh->vertices.size() > UINT_MAX / sizeof(MeshVertex) || mesh->indices.size() > UINT_MAX / sizeof(unsigned)) return nullptr;
+    if (std::any_of(mesh->indices.begin(),mesh->indices.end(),[&](unsigned index){return index >= mesh->vertices.size();})) return nullptr;
+    auto found = m_meshes.find(mesh.get());
+    if (found != m_meshes.end() && !found->second.source.expired()) return &found->second;
+    GpuMesh gpu; gpu.source = mesh; gpu.count = static_cast<UINT>(mesh->indices.size());
+    D3D11_BUFFER_DESC buffer{}; buffer.Usage = D3D11_USAGE_IMMUTABLE;
+    buffer.BindFlags = D3D11_BIND_VERTEX_BUFFER; buffer.ByteWidth = static_cast<UINT>(mesh->vertices.size()*sizeof(MeshVertex));
+    D3D11_SUBRESOURCE_DATA data{}; data.pSysMem = mesh->vertices.data();
+    if (!Check(m_device->CreateBuffer(&buffer,&data,gpu.vertices.GetAddressOf()),L"Upload vertices")) return nullptr;
+    buffer.BindFlags = D3D11_BIND_INDEX_BUFFER; buffer.ByteWidth = static_cast<UINT>(mesh->indices.size()*sizeof(unsigned));
+    data.pSysMem = mesh->indices.data();
+    if (!Check(m_device->CreateBuffer(&buffer,&data,gpu.indices.GetAddressOf()),L"Upload indices")) return nullptr;
+    return &m_meshes.insert_or_assign(mesh.get(),std::move(gpu)).first->second;
+}
+bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame)
+{
+    if (!m_renderTarget || !m_depth) return false;
+    std::erase_if(m_meshes,[](const auto& entry){return entry.second.source.expired();});
+    ID3D11RenderTargetView* target=m_renderTarget.Get();
+    m_context->OMSetRenderTargets(1,&target,m_depth.Get());
+    constexpr float background[]={.025f,.10f,.18f,1};
+    m_context->ClearRenderTargetView(target,background);
+    m_context->ClearDepthStencilView(m_depth.Get(),D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL,1,0);
+    D3D11_VIEWPORT viewport{0,0,static_cast<float>(m_width),static_cast<float>(m_height),0,1};
+    m_context->RSSetViewports(1,&viewport); m_context->RSSetState(m_meshRasterizer.Get());
+    m_context->IASetInputLayout(m_meshLayout.Get()); m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->VSSetShader(m_meshVs.Get(),nullptr,0); m_context->PSSetShader(m_meshPs.Get(),nullptr,0);
+    ID3D11Buffer* constants=m_objectConstants.Get(); m_context->VSSetConstantBuffers(0,1,&constants);
+    for (const auto& item : frame.items)
+    {
+        auto* mesh=Upload(item.mesh); if (!mesh) return Check(E_INVALIDARG,L"Invalid render mesh");
+        struct Constants { DirectX::XMFLOAT4X4 wvp; DirectX::XMFLOAT4 tint; } data{};
+        DirectX::XMStoreFloat4x4(&data.wvp,DirectX::XMLoadFloat4x4(&item.world)*
+            DirectX::XMLoadFloat4x4(&frame.view)*DirectX::XMLoadFloat4x4(&frame.projection));
+        data.tint=item.tint;
+        m_context->UpdateSubresource(constants,0,nullptr,&data,0,0);
+        ID3D11Buffer* vertices=mesh->vertices.Get(); const UINT stride=sizeof(MeshVertex), offset=0;
+        m_context->IASetVertexBuffers(0,1,&vertices,&stride,&offset);
+        m_context->IASetIndexBuffer(mesh->indices.Get(),DXGI_FORMAT_R32_UINT,0);
+        m_context->DrawIndexed(mesh->count,0,0);
+    }
+    if (verifyFrame && !VerifyTriangleFrame()) return false;
+    return Check(m_swapChain->Present(1,0),L"Present scene");
 }
 
 bool D3D11Renderer::Render(bool verifyFrame)
@@ -237,6 +325,8 @@ void D3D11Renderer::Shutdown() noexcept
         m_context->ClearState();
         m_context->Flush();
     }
+    m_meshes.clear(); m_objectConstants.Reset(); m_meshLayout.Reset(); m_meshPs.Reset(); m_meshVs.Reset();
+    m_meshRasterizer.Reset(); m_depth.Reset();
     m_renderTarget.Reset();
     m_inputLayout.Reset();
     m_pixelShader.Reset();

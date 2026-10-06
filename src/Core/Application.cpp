@@ -5,7 +5,7 @@
 #include <string>
 namespace nereides
 {
-int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest)
+int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool sceneTest)
 {
     m_window.SetInput(&m_input);
     if (!m_window.Create(instance, smokeTest ? SW_HIDE : showCommand)) return 1;
@@ -14,6 +14,15 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest)
     auto& player = m_scene.Create("Example player");
     m_player = player.Id();
     player.Add<MoveComponent>();
+    auto cube = MakeCube();
+    player.transform.position = {0,1,0};
+    player.Add<MeshComponent>(cube).tint = {.85f,.65f,.3f,1};
+    auto& ground = m_scene.Create("Temporary deck");
+    ground.transform.scale = {8,.25f,6};
+    ground.transform.position = {0,-.4f,1};
+    ground.Add<MeshComponent>(cube).tint = {.12f,.35f,.4f,1};
+    auto& camera = m_scene.Create("Example camera");
+    m_camera = camera.Id(); camera.transform.position = {0,1,-6};
     auto previous = std::chrono::steady_clock::now();
     int exitCode = 0;
     bool frameVerified = false;
@@ -37,8 +46,17 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest)
         m_time.paused = menuPause || (!smokeTest && !m_window.IsFocused());
         m_time.Advance(delta); m_time.paused = menuPause;
         m_scene.Update({m_input, m_time});
-        if (!m_renderer.Resize(m_window.Width(), m_window.Height()) ||
-            !m_renderer.Render(smokeTest && !frameVerified)) return 1;
+        if (!m_renderer.Resize(m_window.Width(), m_window.Height())) return 1;
+        if (smokeTest && !sceneTest)
+        {
+            if (!m_renderer.Render(!frameVerified)) return 1;
+        }
+        else
+        {
+            const auto frame = CollectRenderFrame(m_scene,m_camera,m_cameraData,
+                float(m_window.Width())/float(m_window.Height()),m_time.combat.elapsed);
+            if (!m_renderer.RenderScene(frame,sceneTest && !frameVerified)) return 1;
+        }
         frameVerified = true;
         if (!smokeTest)
         {

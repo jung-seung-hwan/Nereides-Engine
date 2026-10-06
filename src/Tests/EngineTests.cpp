@@ -3,6 +3,7 @@
 #include "Core/Time.h"
 #include "Core/Log.h"
 #include "Scene/Scene.h"
+#include "Graphics/RenderFrame.h"
 #include <functional>
 #include <cmath>
 #include <limits>
@@ -84,10 +85,26 @@ void TestScene()
     Require(rejected, "invalid camera aspect");
     scene.Destroy(cameraObject.Id()); scene.Flush();
 }
+void TestRenderInput()
+{
+    Scene scene; Camera camera;
+    const auto cameraId=scene.Create("camera").Id();
+    auto mesh=MakeCube(); std::weak_ptr<const MeshData> weak=mesh;
+    const auto first=scene.Create("first").Id();
+    scene.Find(first)->Add<MeshComponent>(mesh);
+    const auto second=scene.Create("second").Id();
+    scene.Find(second)->Add<MeshComponent>(mesh); scene.Find(second)->transform.position.x=4;
+    auto frame=CollectRenderFrame(scene,cameraId,camera,1,0);
+    Require(frame.items.size()==2 && Near(frame.items[1].world._41,4),"render world transforms");
+    scene.Destroy(first); scene.Flush(); mesh.reset();
+    Require(!weak.expired(),"shared model survives one object removal");
+    scene.Clear(); Require(!weak.expired(),"frame keeps model alive");
+    frame.items.clear(); Require(weak.expired(),"model released after final frame");
+}
 }
 int RunEngineTests()
 {
-    try { TestInput(); TestTime(); TestScene(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene"); return 0; }
+    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input"); return 0; }
     catch (const std::exception& error) { Log::Write(LogLevel::Error, error.what()); return 1; }
 }
 }
