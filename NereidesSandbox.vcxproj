@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -85,11 +85,19 @@
     <ClCompile Include="src\Main.cpp" />
     <ClCompile Include="src\Graphics\D3D11Renderer.cpp" />
     <ClCompile Include="src\Platform\Win32Window.cpp" />
+    <ClCompile Include="src\Core\Application.cpp" />
+    <ClCompile Include="src\Core\Log.cpp" />
+    <ClCompile Include="src\Tests\EngineTests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Platform\Win32Window.h" />
     <ClInclude Include="src\Graphics\D3D11Renderer.h" />
     <ClInclude Include="src\Graphics\TriangleShaders.h" />
+    <ClInclude Include="src\Core\Application.h" />
+    <ClInclude Include="src\Core\Input.h" />
+    <ClInclude Include="src\Core\Log.h" />
+    <ClInclude Include="src\Core\Time.h" />
+    <ClInclude Include="src\Tests\EngineTests.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

@@ -1,4 +1,5 @@
 #include "Platform/Win32Window.h"
+#include "Core/Input.h"
 
 #include <string>
 
@@ -64,6 +65,12 @@ bool Win32Window::Create(HINSTANCE instance, int showCommand)
         return false;
     }
     ShowWindow(m_window, showCommand);
+    RAWINPUTDEVICE mouse{0x01, 0x02, 0, m_window};
+    if (!RegisterRawInputDevices(&mouse, 1, sizeof(mouse)))
+    {
+        ReportError(L"RegisterRawInputDevices", GetLastError());
+        return false;
+    }
     UpdateWindow(m_window);
     OutputDebugStringW(L"[Nereides] Win32 window created.\n");
     return true;
@@ -109,6 +116,45 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
 {
     switch (message)
     {
+    case WM_SETFOCUS:
+        m_focused = true;
+        if (m_input)
+        {
+            m_input->SetFocus(true);
+            for (unsigned key = 0; key < 256; ++key)
+                m_input->ReconcilePhysicalKey(key, (GetAsyncKeyState(static_cast<int>(key)) & 0x8000) != 0);
+        }
+        break;
+    case WM_KILLFOCUS:
+        m_focused = false;
+        if (m_input) m_input->SetFocus(false);
+        break;
+    case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        if (m_input) m_input->SetKey(static_cast<unsigned>(wParam), true);
+        break;
+    case WM_KEYUP: case WM_SYSKEYUP:
+        if (m_input) m_input->SetKey(static_cast<unsigned>(wParam), false);
+        break;
+    case WM_LBUTTONDOWN: case WM_LBUTTONUP:
+        if (m_input) m_input->SetKey(VK_LBUTTON, message == WM_LBUTTONDOWN);
+        break;
+    case WM_RBUTTONDOWN: case WM_RBUTTONUP:
+        if (m_input) m_input->SetKey(VK_RBUTTON, message == WM_RBUTTONDOWN);
+        break;
+    case WM_MOUSEWHEEL:
+        if (m_input) m_input->AddWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+        break;
+    case WM_INPUT:
+        if (m_input)
+        {
+            RAWINPUT raw{};
+            UINT size = sizeof(raw);
+            if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT,
+                &raw, &size, sizeof(RAWINPUTHEADER)) != UINT(-1) && raw.header.dwType == RIM_TYPEMOUSE &&
+                !(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE))
+                m_input->AddMouseDelta(raw.data.mouse.lLastX, raw.data.mouse.lLastY);
+        }
+        break;
     case WM_SIZE:
         m_minimized = wParam == SIZE_MINIMIZED;
         m_width = LOWORD(lParam);
