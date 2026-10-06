@@ -17,6 +17,10 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
     auto cube = MakeCube();
     player.transform.position = {0,1,0};
     player.Add<MeshComponent>(cube).tint = {.85f,.65f,.3f,1};
+    player.Add<Collider>().mask=2;
+    auto& target=m_scene.Create("Contact example");target.transform.position={2,1,0};
+    target.Add<MeshComponent>(cube).tint={.65f,.25f,.3f,1};
+    auto& collider=target.Add<Collider>();collider.layer=2;collider.mask=1;collider.trigger=true;
     auto& ground = m_scene.Create("Temporary deck");
     ground.transform.scale = {8,.25f,6};
     ground.transform.position = {0,-.4f,1};
@@ -46,6 +50,9 @@ int Application::Run(HINSTANCE instance, int showCommand, bool smokeTest, bool s
         m_time.paused = menuPause || (!smokeTest && !m_window.IsFocused());
         m_time.Advance(delta); m_time.paused = menuPause;
         m_scene.Update({m_input, m_time});
+        const auto contacts=m_collision.Step(m_scene,m_time.combat.elapsed-m_time.combat.delta,m_time.combat.elapsed);
+        for(const auto& contact:contacts) if(contact.kind==ContactKind::Enter)
+            Log::Write(LogLevel::Info,"Trigger entered at "+std::to_string(contact.time));
         if (!m_renderer.Resize(m_window.Width(), m_window.Height())) return 1;
         if (smokeTest && !sceneTest)
         {

@@ -4,6 +4,7 @@
 #include "Platform/Win32Window.h"
 #include "Graphics/D3D11Renderer.h"
 #include "Scene/Scene.h"
+#include "Collision/Collision.h"
 namespace nereides
 {
 class Application final
@@ -20,5 +21,6 @@ private:
     ObjectId m_player = 0;
     ObjectId m_camera = 0;
     Camera m_cameraData;
+    CollisionWorld m_collision;
 };
 }

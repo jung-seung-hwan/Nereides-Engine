@@ -8,6 +8,7 @@
 #include "Animation/Timeline.h"
 #include "Graphics/D3D11Renderer.h"
 #include "Platform/Win32Window.h"
+#include "Collision/Collision.h"
 #include <fstream>
 #include <functional>
 #include <cmath>
@@ -138,10 +139,35 @@ void TestModelCache()
     Require(weak.expired(),"cache does not retain unused model");
     std::filesystem::remove(path);
 }
+void TestCollision()
+{
+    Scene scene;CollisionWorld collision;
+    auto& player=scene.Create("point player");const auto playerId=player.Id();
+    player.transform.position={-2,0,0};auto& pc=player.Add<Collider>();pc.radius=0;pc.layer=1;pc.mask=2;
+    auto& trigger=scene.Create("escape");auto& tc=trigger.Add<Collider>();
+    tc.shape=Shape::Box;tc.halfExtents={.5f,.5f,.5f};tc.trigger=true;tc.layer=2;tc.mask=1;
+    Require(collision.Step(scene,0,0).empty(),"no initial overlap");
+    player.transform.position.x=2;
+    const auto contacts=collision.Step(scene,0,10);
+    Require(contacts.size()==2 && contacts[0].kind==ContactKind::Enter && Near(contacts[0].time,3.75),"swept trigger exact entry and exit");
+    const double deadline=3.75;
+    Require(contacts[0].time<=deadline && contacts[0].time>deadline-.001,"deadline tie uses contact time");
+    auto ray=collision.Raycast(scene,{-2,0,0},{1,0,0},10,2);
+    Require(ray && Near(ray->distance,1.5),"ray box nearest distance");
+    player.transform.position={.59f,.59f,0};pc.radius=.1f;
+    collision.Reset();Require(collision.Step(scene,0,0).empty(),"sphere box corner excludes inflated-box false positive");
+    player.transform.position={-5,0,0};pc.radius=.1f;tc.shape=Shape::Sphere;tc.radius=.1f;tc.trigger=false;
+    collision.Reset();collision.Step(scene,0,0);player.transform.position={5,0,0};
+    const auto hit=collision.Step(scene,0,1);
+    Require(hit.size()==1 && Near(hit[0].time,.48),"fast sphere sweep avoids tunneling");
+    scene.Destroy(playerId);scene.Flush();Require(collision.Step(scene,1,2).empty(),"removed collider emits no hit");
+    HitLedger ledger;Require(ledger.Record(7,9)&&!ledger.Record(7,9)&&ledger.Record(7,10),"attack target duplicate policy");
+    ledger.End(7);Require(ledger.Record(7,9),"attack cleanup");
+}
 }
 int RunEngineTests()
 {
-    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); TestAnimation(); TestModelCache(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input, animation, model cache"); return 0; }
+    try { TestInput(); TestTime(); TestScene(); TestRenderInput(); TestAnimation(); TestModelCache(); TestCollision(); Log::Write(LogLevel::Info, "Engine tests PASS: input, time, scene, render input, animation, model cache, collision"); return 0; }
     catch (const std::exception& error) { Log::Write(LogLevel::Error, error.what()); return 1; }
 }
 int RunModelTest(const std::filesystem::path& path)
