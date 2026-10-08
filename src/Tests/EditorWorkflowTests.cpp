@@ -5,6 +5,7 @@
 #include <imgui.h>
 #include <fstream>
 #include <cmath>
+
 namespace nereides
 {
 struct EditorTestAccess
@@ -15,93 +16,116 @@ struct EditorTestAccess
         editor.m_hasScenePath = true;
         editor.m_assets.SetRoot(model.parent_path());
     }
+
     static DirectX::XMFLOAT2 AssetRow(const Editor& editor, const std::filesystem::path& path)
     {
         return editor.m_assets.m_rowCenters.at(std::filesystem::absolute(path).lexically_normal());
     }
+
     static DirectX::XMFLOAT2 PlaceButton(const Editor& editor)
     {
         return editor.m_assets.m_placeButton;
     }
+
     static DirectX::XMFLOAT2 ViewLogButton(const Editor& editor)
     {
         return editor.m_viewLogButton;
     }
+
     static DirectX::XMFLOAT2 ConsoleButton(const Editor& editor)
     {
         return editor.m_consoleButton;
     }
+
     static DirectX::XMFLOAT2 ClearLogsButton(const Editor& editor)
     {
         return editor.m_console.m_clearButton;
     }
+
     static DirectX::XMFLOAT2 ErrorFilter(const Editor& editor)
     {
         return editor.m_console.m_errorFilter;
     }
+
     static DirectX::XMFLOAT2 Splitter(const Editor& editor)
     {
         return editor.m_splitter;
     }
+
     static DirectX::XMFLOAT2 BackButton(const Editor& editor)
     {
         return editor.m_assets.m_backButton;
     }
+
     static DirectX::XMFLOAT2 AssetSearch(const Editor& editor)
     {
         return editor.m_assets.m_searchBox;
     }
+
     static std::vector<AssetFile> Files(const Editor& editor)
     {
         return editor.m_assets.Visible();
     }
+
     static std::filesystem::path Folder(const Editor& editor)
     {
         return editor.m_assets.m_folder;
     }
+
     static void Refresh(Editor& editor)
     {
         editor.m_assets.Refresh();
     }
+
     static bool HasMetadata(const Editor& editor, const std::filesystem::path& path)
     {
         const auto found =
             editor.m_assets.m_known.find(std::filesystem::absolute(path).lexically_normal());
         return found != editor.m_assets.m_known.end() && found->second.meshes > 0;
     }
+
     static bool ConsoleVisible(const Editor& editor)
     {
         return editor.m_console.open;
     }
+
     static std::uint64_t SelectedLog(const Editor& editor)
     {
         return editor.m_console.m_selected.id;
     }
+
     static std::uint64_t ErrorLog(const Editor& editor)
     {
         return editor.m_errorLog;
     }
+
     static std::uint64_t ClearedThrough(const Editor& editor)
     {
         return editor.m_console.m_clearThrough;
     }
+
     static int LogFilter(const Editor& editor)
     {
         return editor.m_console.m_level;
     }
+
     static ObjectId Selection(const Editor& editor)
     {
         return editor.m_selected;
     }
+
     static float Distance(const Editor& editor)
     {
         return editor.m_distance;
     }
+
     static bool Dirty(const Editor& editor)
     {
         return editor.m_dirty;
     }
 };
+
+
 int RunEditorWorkflowTest()
 {
     try
@@ -116,6 +140,7 @@ int RunEditorWorkflowTest()
             std::ofstream model(modelPath);
             model << "o TestModel\nv -1 0 0\nv 1 0 0\nv 0 2 0\nf 1 2 3\n";
         }
+
         Win32Window window;
         require(window.Create(GetModuleHandleW(nullptr), SW_HIDE), "workflow window");
         D3D11Renderer renderer;
@@ -170,6 +195,7 @@ int RunEditorWorkflowTest()
             io.AddKeyEvent(ImGuiMod_Ctrl, false);
             frame();
         };
+
         // Exercise the actual widgets at the fixed 1280x720 regression layout.
         click(35, 106);
         require(scene.Objects().size() == 3, "UI add cube");
@@ -271,6 +297,7 @@ int RunEditorWorkflowTest()
         require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
                 "Stop restores authored state after runtime changes");
         auto clickPoint = [&](DirectX::XMFLOAT2 p) { click(p.x, p.y); };
+
         // Folder navigation, scoped search and explicit placement use the same real UI.
         const auto folder = modelPath.parent_path() / "motions";
         std::filesystem::create_directories(folder);
@@ -279,6 +306,7 @@ int RunEditorWorkflowTest()
             std::ofstream fixture(nested);
             fixture << "not a valid model";
         }
+
         EditorTestAccess::Refresh(editor);
         frame();
         auto folderPoint = EditorTestAccess::AssetRow(editor, folder);
@@ -311,6 +339,7 @@ int RunEditorWorkflowTest()
                     EditorTestAccess::HasMetadata(editor, modelPath),
                 "Place button imports selected file and records real metadata");
         shortcut(ImGuiKey_Z);
+
         // Selecting an invalid model should preserve the scene and link to its exact error.
         folderPoint = EditorTestAccess::AssetRow(editor, folder);
         clickPoint(folderPoint);
@@ -360,6 +389,7 @@ int RunEditorWorkflowTest()
                 "Assets height resizes by dragging divider");
         std::filesystem::remove(nested);
         std::filesystem::remove(folder);
+
         // Refresh after deleting the test fixture, then verify the existing close guard.
         EditorTestAccess::Refresh(editor);
         require(editor.RequestClose(), "saved document closes without prompt");

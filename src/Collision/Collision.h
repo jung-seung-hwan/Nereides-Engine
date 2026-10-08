@@ -3,23 +3,38 @@
 #include <map>
 #include <optional>
 #include <set>
+
 namespace nereides
 {
+// mesh와 collider은 별도로 처리
+// object.Add<Collider>()로 충돌체 추가
+// 실제 검사는 CollisionWorld에서 수행
+
+/*
+auto& collider = object.Add<Collider>();
+collider.shape = Shape::Sphere;
+collider.radius = 1.f;
+*/
 enum class Shape
 {
     Sphere,
     Box
 };
+
 class Collider final : public Component
 {
 public:
     Shape shape = Shape::Sphere;
     DirectX::XMFLOAT3 offset{}, halfExtents{.5f, .5f, .5f};
     float radius = .5f;
+
+    // layer : 내 충돌분류 / mask : 나와 충돌 검사할 상대의 분류 목록
     unsigned layer = 1, mask = ~0u;
+
     bool trigger = false;
     std::uint64_t attack = 0; // Assigned by content; zero means not an attack.
 };
+
 struct CollisionShape
 {
     ObjectId object = 0;
@@ -30,6 +45,13 @@ struct CollisionShape
     bool trigger = false;
     std::uint64_t attack = 0;
 };
+
+/*
+Hit	    일반 충돌 검출
+Enter	트리거 영역 진입
+Stay	이전 검사부터 이어지는 트리거 접촉
+Exit	트리거 영역 이탈
+*/
 enum class ContactKind
 {
     Hit,
@@ -37,6 +59,8 @@ enum class ContactKind
     Stay,
     Exit
 };
+
+// 충돌 결과
 struct Contact
 {
     ObjectId first = 0, second = 0;
@@ -45,12 +69,16 @@ struct Contact
     double fraction = 0, time = 0; // Fraction maps onto any clock's matching interval.
     DirectX::XMFLOAT3 position{};
 };
+
+// 광선 검사
 struct RayHit
 {
     ObjectId object = 0;
     float distance = 0;
     DirectX::XMFLOAT3 position{};
 };
+
+// 중복 타격 처리
 // Optional content-owned ledger. Record only after accepting a candidate as a valid hit.
 class HitLedger final
 {
@@ -59,10 +87,12 @@ public:
     {
         return attack != 0 && m_hits.emplace(attack, target).second;
     }
+
     void End(std::uint64_t attack)
     {
         std::erase_if(m_hits, [=](const auto& hit) { return hit.first == attack; });
     }
+
     void Reset()
     {
         m_hits.clear();
@@ -71,6 +101,7 @@ public:
 private:
     std::set<std::pair<std::uint64_t, ObjectId>> m_hits;
 };
+
 class CollisionWorld final
 {
 public:
@@ -79,6 +110,7 @@ public:
     std::optional<RayHit> Raycast(const Scene& scene, DirectX::XMFLOAT3 origin,
                                   DirectX::XMFLOAT3 direction, float maxDistance,
                                   unsigned mask = ~0u) const;
+
     void Reset()
     {
         m_previous.clear();

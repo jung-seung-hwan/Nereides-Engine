@@ -12,6 +12,7 @@
 #include <cctype>
 #pragma comment(lib, "comdlg32.lib")
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
+
 namespace nereides
 {
 namespace
@@ -22,10 +23,14 @@ std::string Utf8(const std::filesystem::path& path)
     const auto s = path.generic_u8string();
     return {s.begin(), s.end()};
 }
+
+
 std::filesystem::path Path(const char* text)
 {
     return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text)));
 }
+
+
 std::filesystem::path ChooseFile(HWND owner, bool save, bool model = false)
 {
     wchar_t path[32768]{};
@@ -43,19 +48,25 @@ std::filesystem::path ChooseFile(HWND owner, bool save, bool model = false)
     dialog.lpstrInitialDir = initial.c_str();
     if (save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog))
         return path;
+
     if (CommDlgExtendedError())
         throw std::runtime_error("File dialog failed");
+
     return {};
 }
+
+
 bool SetLocalTransform(Transform& transform, FXMMATRIX matrix)
 {
     XMVECTOR scale, rotation, position;
     if (!XMMatrixDecompose(&scale, &rotation, &position, matrix))
         return false;
+
     XMFLOAT3 s;
     XMStoreFloat3(&s, scale);
     if (s.x < .001f || s.y < .001f || s.z < .001f)
         return false;
+
     transform.scale = s;
     XMStoreFloat3(&transform.position, position);
     XMFLOAT4X4 r;
@@ -71,8 +82,11 @@ bool SetLocalTransform(Transform& transform, FXMMATRIX matrix)
         transform.rotation.y = std::atan2(-r._13, r._11);
         transform.rotation.z = 0;
     }
+
     return true;
 }
+
+
 bool VectorControl(const char* label, XMFLOAT3& value, float speed, bool positive = false)
 {
     ImGui::TextUnformatted(label);
@@ -82,6 +96,7 @@ bool VectorControl(const char* label, XMFLOAT3& value, float speed, bool positiv
     const ImVec4 colors[] = {{.95f, .35f, .32f, 1}, {.4f, .85f, .45f, 1}, {.35f, .65f, 1, 1}};
     float* values[] = {&value.x, &value.y, &value.z};
     const float width = (ImGui::GetContentRegionAvail().x - 16) / 3;
+
     for (int axis = 0; axis < 3; ++axis)
     {
         if (axis)
@@ -95,9 +110,12 @@ bool VectorControl(const char* label, XMFLOAT3& value, float speed, bool positiv
         ImGui::PopID();
         ImGui::EndGroup();
     }
+
     ImGui::PopID();
     return changed;
 }
+
+
 bool ContainsRole(const Scene& scene, ObjectId root, ObjectId role)
 {
     for (auto* object = scene.Find(role); object; object = scene.Find(object->Parent()))
@@ -105,6 +123,8 @@ bool ContainsRole(const Scene& scene, ObjectId root, ObjectId role)
             return true;
     return false;
 }
+
+
 void Panel(const char* name, ImVec2 position, ImVec2 size)
 {
     ImGui::SetNextWindowPos(position);
@@ -114,6 +134,8 @@ void Panel(const char* name, ImVec2 position, ImVec2 size)
                      ImGuiWindowFlags_NoSavedSettings);
 }
 } // namespace
+
+
 Editor::~Editor()
 {
     if (m_initialized)
@@ -123,6 +145,10 @@ Editor::~Editor()
         ImGui::DestroyContext();
     }
 }
+
+
+// ImGui 연결
+// 기존 렌더러의 Device와 Context를 공유
 bool Editor::Initialize(HWND window, D3D11Renderer& renderer)
 {
     IMGUI_CHECKVERSION();
@@ -143,12 +169,14 @@ bool Editor::Initialize(HWND window, D3D11Renderer& renderer)
         ImGui::DestroyContext();
         return false;
     }
+
     if (!ImGui_ImplDX11_Init(renderer.Device(), renderer.Context()))
     {
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
         return false;
     }
+
     m_window = window;
     m_renderer = &renderer;
     m_textures.SetDevice(renderer.Device());
@@ -156,22 +184,30 @@ bool Editor::Initialize(HWND window, D3D11Renderer& renderer)
     m_assets.SetRoot("assets");
     return true;
 }
+
+
 void Editor::Message(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     if (m_initialized)
         ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam);
 }
+
+
 bool Editor::RequestClose()
 {
     if (m_allowClose || (!m_dirty && (!m_historyReady || !m_history.Dirty())))
         return true;
+
     m_closeRequested = true;
     return false;
 }
+
+
 void Editor::Focus(const Scene& scene, ObjectId id)
 {
     if (!scene.Find(id))
         return;
+
     const auto bounds = EditorBounds(scene, id);
     m_focus = bounds.Center;
     const float radius = XMVectorGetX(XMVector3Length(XMLoadFloat3(&bounds.Extents)));
@@ -179,11 +215,14 @@ void Editor::Focus(const Scene& scene, ObjectId id)
     const float halfFov = std::atan(std::tan(XM_PIDIV4 * .5f) * std::min(1.f, aspect));
     m_distance = std::clamp(radius / std::sin(halfFov) * 1.15f, .5f, 5000.f);
 }
+
+
 void Editor::Import(Scene& scene, const std::filesystem::path& path, const XMFLOAT3* position)
 {
     auto model = m_models.Load(path);
     if (model->parts.empty())
         throw std::runtime_error("The file contains no mesh");
+
     auto& object = scene.Create(Utf8(path.stem()));
     m_assets.Remember(path, model->parts.size(), model->clips.size());
     object.Add<ModelComponent>(std::move(model));
@@ -194,11 +233,16 @@ void Editor::Import(Scene& scene, const std::filesystem::path& path, const XMFLO
     m_errorLog = 0;
     m_status = "Placed " + Utf8(path.filename()) + ". F focuses the selection.";
 }
+
+
 void Editor::ApplyView(RenderFrame& frame) const
 {
     frame.view = m_view;
     frame.projection = m_projection;
 }
+
+
+// UI 구성·사용자 조작 처리 → 필요하면 장면 교체
 bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& camera, Time& time,
                    Input& input, CollisionWorld& collision)
 {
@@ -206,6 +250,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
+
     bool replaced = false;
     if (!m_historyReady)
     {
@@ -213,18 +258,24 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         m_historyReady = true;
         m_selected = player;
     }
+
     auto report = [&](const std::exception& e) {
         m_status = e.what();
         m_errorLog = Log::Write(LogLevel::Error, m_status);
     };
+
+    // 현재 장면 상태를 직렬화하고 편집 기록에 추가
     auto commit = [&] {
         m_history.Commit(SceneIO::Encode(scene, cameraId, player, camera));
         m_dirty = m_history.Dirty();
     };
+
     auto selectionIndex = [&] {
         auto ids = scene.Objects();
         return std::size_t(std::find(ids.begin(), ids.end(), m_selected) - ids.begin());
     };
+
+    // 장면 교체 시점에 호출 → 장면, 카메라, 플레이어, 카메라 데이터, 선택 항목 복원
     auto restore = [&](LoadedScene loaded, std::size_t selection) {
         scene = std::move(loaded.scene);
         cameraId = loaded.camera;
@@ -235,9 +286,19 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         m_transition.Reset();
         replaced = true;
     };
+
+    /*
+    Play 중이면 저장하지 않음
+     → 필요한 경우 저장 경로 선택
+     → 현재 상태 Commit
+     → SceneIO::Save()
+     → 성공한 뒤 MarkSaved()
+     → 변경 표시 해제
+    */
     auto save = [&](bool choose) {
         if (m_playing)
             return false;
+
         try
         {
             auto destination = Path(m_scenePath);
@@ -246,11 +307,14 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 const auto path = ChooseFile(m_window, true);
                 if (path.empty())
                     return false;
+
                 const auto text = Utf8(path);
                 if (text.size() >= sizeof(m_scenePath))
                     throw std::runtime_error("Scene path is too long");
+
                 destination = path;
             }
+
             commit();
             SceneIO::Save(scene, cameraId, player, destination, camera);
             strcpy_s(m_scenePath, Utf8(destination).c_str());
@@ -266,14 +330,17 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             return false;
         }
     };
+
     auto history = [&](int direction) {
         if (m_playing)
             return;
+
         try
         {
             commit();
             if (direction < 0 ? !m_history.CanUndo() : !m_history.CanRedo())
                 return;
+
             const auto selected = selectionIndex();
             auto loaded = SceneIO::Decode(m_history.Target(direction), m_models);
             restore(std::move(loaded), selected);
@@ -286,6 +353,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             report(e);
         }
     };
+
     const auto display = ImGui::GetIO().DisplaySize;
     const float left = std::clamp(display.x * .19f, 170.f, 250.f);
     const float right = std::clamp(display.x * .26f, 240.f, 330.f);
@@ -294,9 +362,11 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     const float top = 64;
     const float middle = std::max(120.f, display.x - left - right);
     const float height = std::max(120.f, display.y - top - bottom - 6);
+
     const auto& io = ImGui::GetIO();
     const bool shortcuts = !io.WantTextInput && !ImGuizmo::IsUsing() &&
                            !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+
     Panel("Workspace", {0, 0}, {display.x, top});
     ImGui::BeginDisabled(m_playing);
     if (ImGui::Button("Save") ||
@@ -310,6 +380,17 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         ImGui::OpenPopup("Open scene");
     ImGui::SameLine();
     ImGui::BeginDisabled(!m_history.CanUndo() && !m_dirty);
+
+    /*
+    Undo·Redo 처리
+
+    현재 편집 상태 기록
+     → 이동할 기록이 있는지 확인
+     → Target으로 문자열 조회
+     → Decode로 복원
+     → restore로 장면 교체
+     → Accept로 기록 위치 확정
+    */
     if (ImGui::Button("Undo") ||
         (shortcuts && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false)))
         history(-1);
@@ -322,10 +403,12 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     ImGui::EndDisabled();
     ImGui::EndDisabled();
     ImGui::SameLine();
+
     if (ImGui::Button(m_playing ? "Stop / restore" : "Play"))
     {
         try
         {
+            // Play 시 편집 상태 보관, Stop 시 해당 상태 복원
             if (!m_playing)
             {
                 commit();
@@ -348,6 +431,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             report(e);
         }
     }
+
     ImGui::SameLine();
     if (m_playing)
         ImGui::Checkbox("Pause", &time.paused);
@@ -363,6 +447,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         const auto a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         m_consoleButton = {(a.x + b.x) * .5f, (a.y + b.y) * .5f};
     }
+
     if (ImGui::BeginPopupModal("Open scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(m_dirty ? "Save your changes before opening another scene?"
@@ -374,6 +459,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 open = save(false);
             ImGui::SameLine();
         }
+
         if (ImGui::Button(m_dirty ? "Discard and open" : "Choose file"))
             open = true;
         ImGui::SameLine();
@@ -389,6 +475,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                     const auto text = Utf8(path);
                     if (text.size() >= sizeof(m_scenePath))
                         throw std::runtime_error("Scene path is too long");
+
                     auto loaded = SceneIO::Load(path, m_models);
                     const auto encoded = SceneIO::Encode(loaded.scene, loaded.camera, loaded.player,
                                                          loaded.cameraData);
@@ -404,15 +491,19 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             {
                 report(e);
             }
+
             ImGui::CloseCurrentPopup();
         }
+
         ImGui::EndPopup();
     }
+
     if (m_closeRequested)
     {
         ImGui::OpenPopup("Unsaved changes");
         m_closeRequested = false;
     }
+
     if (ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted("Save the edited scene before closing?");
@@ -433,10 +524,13 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             ImGui::CloseCurrentPopup();
             PostMessageW(m_window, WM_CLOSE, 0, 0);
         }
+
         ImGui::EndPopup();
     }
+
     ImGui::End();
 
+    // 객체 계층 표시·선택·생성·삭제
     Panel("Hierarchy", {0, top}, {left, height});
     ImGui::BeginDisabled(m_playing);
     if (ImGui::Button("+ Cube"))
@@ -447,6 +541,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         m_selected = object.Id();
         m_dirty = true;
     }
+
     ImGui::SameLine();
     const bool canDelete = scene.Find(m_selected) && !ContainsRole(scene, m_selected, cameraId) &&
                            !ContainsRole(scene, m_selected, player);
@@ -458,6 +553,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         m_selected = 0;
         m_dirty = true;
     }
+
     ImGui::EndDisabled();
     ImGui::EndDisabled();
     ImGui::Separator();
@@ -467,7 +563,9 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             auto* object = scene.Find(id);
             if (object->Parent() != parent)
                 continue;
+
             bool children = false;
+
             for (auto other : scene.Objects())
                 children |= scene.Find(other)->Parent() == id;
             ImGui::PushID(static_cast<int>(id));
@@ -486,11 +584,13 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 self(self, id);
                 ImGui::TreePop();
             }
+
             ImGui::PopID();
         }
     };
     tree(tree, 0);
     ImGui::End();
+
     Panel("Inspector", {display.x - right, top}, {right, display.y - top});
     ImGui::BeginDisabled(m_playing);
     if (auto* object = scene.Find(m_selected))
@@ -502,7 +602,9 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             object->SetName(name);
             m_dirty = true;
         }
+
         m_dirty |= ImGui::Checkbox("Enabled", &object->enabled);
+
         ImGui::SeparatorText("Transform");
         m_dirty |= VectorControl("Position (meters)", object->transform.position, .02f);
         auto degrees = object->transform.rotation;
@@ -515,12 +617,14 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                                           degrees.z * XM_PI / 180};
             m_dirty = true;
         }
+
         m_dirty |= VectorControl("Scale", object->transform.scale, .01f, true);
         if (ImGui::Button("Reset transform"))
         {
             object->transform = {};
             m_dirty = true;
         }
+
         ImGui::SameLine();
         if (ImGui::Button("Focus (F)"))
             Focus(scene, m_selected);
@@ -540,10 +644,13 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                         else
                             m_status = "Parent rejected: the hierarchy would contain a cycle.";
                     }
+
                     ImGui::PopID();
                 }
             ImGui::EndCombo();
         }
+
+
         if (auto* mesh = object->Get<MeshComponent>())
             m_dirty |= ImGui::ColorEdit4("Color", &mesh->tint.x);
         if (auto* move = object->Get<MoveComponent>())
@@ -565,6 +672,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 m_dirty |= ImGui::DragFloat3("Half extents", &collider->halfExtents.x, .01f, 0,
                                              10000, "%.3f", ImGuiSliderFlags_AlwaysClamp);
         }
+
         if (auto* model = object->Get<ModelComponent>())
         {
             ImGui::SeparatorText("Model");
@@ -578,12 +686,14 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     ImGui::EndDisabled();
     if (m_playing)
         ImGui::TextWrapped("Preview is running. Stop restores the edited scene.");
+
     if (auto* selected = scene.Find(m_selected))
         if (auto* model = selected->Get<ModelComponent>(); model && !model->model->clips.empty())
         {
             ImGui::SeparatorText("Animation preview");
             ImGui::TextWrapped("Play the scene, then choose a clip. Stop restores edits.");
             ImGui::BeginDisabled(!m_playing);
+
             for (std::size_t i = 0; i < model->model->clips.size(); ++i)
             {
                 ImGui::PushID(static_cast<int>(i));
@@ -591,13 +701,16 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                     model->player.Play(i, true, .15);
                 ImGui::PopID();
             }
+
             ImGui::EndDisabled();
         }
+
     ImGui::SeparatorText("Scene file");
     ImGui::TextWrapped("%s",
                        m_hasScenePath ? m_scenePath : "Untitled - choose a file on first Save");
     ImGui::SeparatorText("Status");
     ImGui::TextWrapped("%s", m_status.c_str());
+
     if (ImGui::CollapsingHeader("Transition preview"))
     {
         ImGui::InputText("Clip", m_clipPath, sizeof(m_clipPath));
@@ -621,6 +734,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         if (!m_transition.Error().empty())
             ImGui::TextWrapped("%s", m_transition.Error().c_str());
     }
+
     ImGui::End();
 
     ImGui::SetNextWindowPos({0, top + height});
@@ -638,6 +752,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         m_assetsHeight -= io.MouseDelta.y;
     ImGui::End();
     ImGui::PopStyleVar(2);
+
     Panel("Assets", {0, top + height + 6}, {left + middle, bottom});
     ImGui::BeginChild("Asset workspace", {0, m_errorLog ? -29.f : 0.f});
     m_assets.Draw(
@@ -656,6 +771,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         [&](const std::filesystem::path& path) {
             try
             {
+                // 모델 파일을 Scene 객체로 배치
                 Import(scene, path);
             }
             catch (const std::exception& e)
@@ -678,16 +794,20 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         if (ImGui::SmallButton("Dismiss"))
             m_errorLog = 0;
     }
+
     ImGui::End();
+
     Panel("Scene", {left, top}, {middle, height});
     ImGui::BeginDisabled(m_playing);
     const char* tools[] = {"Move (W)", "Rotate (E)", "Scale (R)"};
+
     for (int i = 0; i < 3; ++i)
     {
         if (i)
             ImGui::SameLine();
         ImGui::RadioButton(tools[i], &m_operation, i);
     }
+
     ImGui::EndDisabled();
     ImGui::Checkbox("Local", &m_local);
     ImGui::SameLine();
@@ -700,6 +820,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     ImGui::SameLine();
     ImGui::Checkbox("Colliders", &m_debug);
     ImGui::TextUnformatted("RMB orbit | MMB pan | Wheel zoom | F focus");
+
     const auto origin = ImGui::GetCursorScreenPos();
     auto size = ImGui::GetContentRegionAvail();
     size.x = std::max(1.f, size.x);
@@ -708,8 +829,10 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     m_viewSize = {size.x, size.y};
     if (!m_renderer->PrepareSceneView(static_cast<unsigned>(size.x), static_cast<unsigned>(size.y)))
         throw std::runtime_error("Cannot create Scene viewport");
+
     ImGui::Image(ImTextureRef(reinterpret_cast<ImTextureID>(m_renderer->SceneView())), size);
     const bool hovered = ImGui::IsItemHovered();
+
     if (!m_playing && ImGui::BeginDragDropTarget())
     {
         if (const auto* payload = ImGui::AcceptDragDropPayload("NEREIDES_MODEL"))
@@ -741,6 +864,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             }
         ImGui::EndDragDropTarget();
     }
+
     if (hovered && !ImGuizmo::IsUsing())
     {
         if (ImGui::IsMouseDragging(ImGuiMouseButton_Right))
@@ -748,6 +872,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             m_yaw += io.MouseDelta.x * .008f;
             m_pitch = std::clamp(m_pitch + io.MouseDelta.y * .008f, -1.5f, 1.5f);
         }
+
         if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
         {
             const auto orientation = XMMatrixRotationRollPitchYaw(m_pitch, m_yaw, 0);
@@ -757,6 +882,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                                         (rightAxis * -io.MouseDelta.x + upAxis * io.MouseDelta.y) *
                                             m_distance * .002f);
         }
+
         m_distance = std::clamp(m_distance * std::pow(.85f, io.MouseWheel), .1f, 5000.f);
         if (shortcuts && ImGui::IsKeyPressed(ImGuiKey_F, false))
             Focus(scene, m_selected);
@@ -770,6 +896,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 m_operation = 2;
         }
     }
+
     const auto forward = XMVector3TransformNormal(XMVectorSet(0, 0, 1, 0),
                                                   XMMatrixRotationRollPitchYaw(m_pitch, m_yaw, 0));
     const auto eye = XMLoadFloat3(&m_focus) - forward * m_distance;
@@ -783,6 +910,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         XMStoreFloat4x4(&m_view, camera.View(scene, cameraId));
         XMStoreFloat4x4(&m_projection, camera.Projection(size.x / size.y));
     }
+
     m_sceneDrawList = ImGui::GetWindowDrawList();
     m_sceneDrawList->PushClipRect(origin, {origin.x + size.x, origin.y + size.y}, true);
     ImGuizmo::SetDrawlist(m_sceneDrawList);
@@ -808,6 +936,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 m_dirty |= SetLocalTransform(object->transform, local);
             }
         }
+
     if (!m_playing && hovered && ImGui::IsMouseClicked(0) && !ImGuizmo::IsOver() &&
         !ImGuizmo::IsUsing())
     {
@@ -819,8 +948,10 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         const auto rayStart = unproject(0), rayEnd = unproject(1);
         m_selected = PickEditorObject(scene, rayStart, XMVector3Normalize(rayEnd - rayStart));
     }
+
     m_sceneDrawList->PopClipRect();
     ImGui::End();
+
     if (!m_playing && !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing())
         try
         {
@@ -830,6 +961,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         {
             report(e);
         }
+
     time.paused = !m_playing || time.paused;
     time.pausePresentation = false;
     m_console.Draw();
@@ -837,11 +969,15 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     (void)collision;
     return replaced;
 }
+
+
 void Editor::Render()
 {
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }
+
+
 void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& camera,
                        const CollisionWorld& collision)
 {
@@ -849,6 +985,7 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
         XMStoreFloat4x4(&m_view, camera.View(scene, cameraId));
     if (!m_sceneDrawList)
         return;
+
     auto* draw = m_sceneDrawList;
     const ImVec2 origin{m_viewOrigin.x, m_viewOrigin.y}, size{m_viewSize.x, m_viewSize.y};
     draw->PushClipRect(origin, {origin.x + size.x, origin.y + size.y}, true);
@@ -859,6 +996,7 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
         XMStoreFloat4(&cb, XMVector4Transform(XMVectorSet(b.x, b.y, b.z, 1), vp));
         if (ca.z < 0 && cb.z < 0)
             return;
+
         if ((ca.z < 0) != (cb.z < 0))
         {
             const float t = ca.z / (ca.z - cb.z);
@@ -869,8 +1007,10 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
             else
                 cb = p;
         }
+
         if (ca.w <= 0 || cb.w <= 0)
             return;
+
         draw->AddLine({origin.x + (ca.x / ca.w * .5f + .5f) * size.x,
                        origin.y + (-ca.y / ca.w * .5f + .5f) * size.y},
                       {origin.x + (cb.x / cb.w * .5f + .5f) * size.x,
@@ -888,8 +1028,10 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
             line({v, 0, -20}, {v, 0, 20}, i == 0 ? blue : c);
             line({-20, 0, v}, {20, 0, v}, i == 0 ? red : c);
         }
+
         line({0, 0, 0}, {0, 3, 0}, green, 2);
     }
+
     auto box = [&](const BoundingBox& bounds, ImU32 color) {
         XMFLOAT3 points[8];
         bounds.GetCorners(points);
@@ -927,6 +1069,7 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
     const XMFLOAT3 axes[] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
     const ImU32 colors[] = {red, green, blue};
     const char* labels[] = {"X", "Y", "Z"};
+
     for (int i = 0; i < 3; ++i)
     {
         XMFLOAT3 direction;
@@ -936,6 +1079,7 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
         draw->AddLine(center, end, colors[i], 2);
         draw->AddText({end.x + 3, end.y - 8}, colors[i], labels[i]);
     }
+
     draw->AddText({origin.x + 10, origin.y + size.y - 24}, IM_COL32(190, 205, 220, 255),
                   m_playing ? "GAME PREVIEW - Stop restores edits"
                             : "EDIT MODE  |  1 grid square = 1 meter");
@@ -943,6 +1087,7 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
     {
         const auto& clip = m_transition.Clip();
         const float t = clip.duration > 0 ? float(m_transition.ClipPosition() / clip.duration) : 1;
+
         for (const auto& layer : clip.layers)
         {
             const float scale = layer.startScale + (layer.endScale - layer.startScale) * t;
@@ -962,21 +1107,28 @@ void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& came
                 draw->AddText({start.x + 12, start.y + 12}, IM_COL32_WHITE, layer.label.c_str());
         }
     }
+
     if (m_transition.Fade() > 0)
         draw->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y},
                             IM_COL32(0, 0, 0, int(m_transition.Fade() * 255)));
     draw->PopClipRect();
 }
+
+
 void Editor::AdvancePresentation(double dt)
 {
     m_transition.Advance(dt);
+
     for (const auto& event : m_transition.TakeNotices())
         Log::Write(LogLevel::Info, "Presentation token=" + std::to_string(event.token) + " state=" +
                                        std::to_string(static_cast<unsigned>(event.state)));
 }
+
+
 void Editor::StartPreview()
 {
     auto clip = Clip2D::Load(m_clipPath);
+
     for (const auto& layer : clip.layers)
         if (!layer.texture.empty())
             m_textures.Get(layer.texture);

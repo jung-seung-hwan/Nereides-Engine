@@ -4,6 +4,7 @@
 #include <map>
 #include <vector>
 #include <DirectXMath.h>
+
 namespace nereides
 {
 struct AssetFile
@@ -12,10 +13,12 @@ struct AssetFile
     bool directory = false;
     std::uintmax_t bytes = 0;
 };
+
 struct AssetInfo
 {
     std::size_t meshes = 0, clips = 0;
 };
+
 class AssetBrowser final
 {
 public:

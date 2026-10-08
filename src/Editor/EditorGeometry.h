@@ -6,6 +6,7 @@
 
 namespace nereides
 {
+// 월드 좌표 기준의 축 정렬 상자, AABB를 반환
 inline DirectX::BoundingBox EditorBounds(const Scene& scene, ObjectId id)
 {
     using namespace DirectX;
@@ -18,10 +19,12 @@ inline DirectX::BoundingBox EditorBounds(const Scene& scene, ObjectId id)
         XMStoreFloat4x4(&item.world, scene.World(id));
         frame.items.push_back(std::move(item));
     }
+
     if (const auto* model = object->Get<ModelComponent>())
         AppendModelDraws(*model, scene.World(id), frame);
     XMVECTOR low = XMVectorReplicate(FLT_MAX), high = XMVectorReplicate(-FLT_MAX);
     bool any = false;
+
     for (const auto& item : frame.items)
         for (const auto& vertex : item.mesh->vertices)
         {
@@ -29,6 +32,7 @@ inline DirectX::BoundingBox EditorBounds(const Scene& scene, ObjectId id)
             if (!item.bones.empty())
             {
                 auto skinned = XMVectorZero();
+
                 for (unsigned i = 0; i < 4; ++i)
                     if (vertex.weights[i] > 0 && vertex.bones[i] < item.bones.size())
                         skinned += XMVector3TransformCoord(
@@ -36,6 +40,7 @@ inline DirectX::BoundingBox EditorBounds(const Scene& scene, ObjectId id)
                                    vertex.weights[i];
                 p = skinned;
             }
+
             p = XMVector3TransformCoord(p, XMLoadFloat4x4(&item.world));
             low = XMVectorMin(low, p);
             high = XMVectorMax(high, p);
@@ -49,18 +54,23 @@ inline DirectX::BoundingBox EditorBounds(const Scene& scene, ObjectId id)
         XMStoreFloat3(&box.Center, XMVector3TransformCoord(XMVectorZero(), scene.World(id)));
         box.Extents = {.25f, .25f, .25f};
     }
+
     return box;
 }
+
+// 마우스로 가장 가까운 객체 선택
 inline ObjectId PickEditorObject(const Scene& scene, DirectX::FXMVECTOR origin,
                                  DirectX::FXMVECTOR direction)
 {
     ObjectId result = 0;
     float closest = FLT_MAX;
+
     for (auto id : scene.Objects())
     {
         const auto* object = scene.Find(id);
         if (!scene.Active(id) || (!object->Get<MeshComponent>() && !object->Get<ModelComponent>()))
             continue;
+
         float distance = 0;
         if (EditorBounds(scene, id).Intersects(origin, direction, distance) && distance < closest)
         {
@@ -68,6 +78,7 @@ inline ObjectId PickEditorObject(const Scene& scene, DirectX::FXMVECTOR origin,
             result = id;
         }
     }
+
     return result;
 }
 } // namespace nereides

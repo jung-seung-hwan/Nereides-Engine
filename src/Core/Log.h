@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+
 namespace nereides
 {
 enum class LogLevel
@@ -11,12 +12,14 @@ enum class LogLevel
     Warning,
     Error
 };
+
 struct LogEntry
 {
     std::uint64_t id = 0;
     LogLevel level = LogLevel::Info;
     std::string time, message;
 };
+
 class Log final
 {
 public:

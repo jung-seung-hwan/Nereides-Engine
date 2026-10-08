@@ -8,3 +8,11 @@ SortIncludes: Never
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
+UseTab: Never
+MaxEmptyLinesToKeep: 2
+SeparateDefinitionBlocks: Leave
+BreakTemplateDeclarations: Yes
+BreakStringLiterals: false
+ReflowComments: false
+FixNamespaceComments: false
+SortUsingDeclarations: Never

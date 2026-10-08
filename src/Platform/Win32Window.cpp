@@ -31,10 +31,13 @@ Win32Window::~Win32Window()
     Destroy();
 }
 
+
+// 창 생성
 bool Win32Window::Create(HINSTANCE instance, int showCommand)
 {
     if (m_classRegistered || m_window)
         return false;
+
     m_instance = instance;
 
     WNDCLASSEXW windowClass{};
@@ -48,6 +51,7 @@ bool Win32Window::Create(HINSTANCE instance, int showCommand)
         ReportError(L"RegisterClassExW", GetLastError());
         return false;
     }
+
     m_classRegistered = true;
 
     constexpr DWORD style = WS_OVERLAPPEDWINDOW;
@@ -58,6 +62,7 @@ bool Win32Window::Create(HINSTANCE instance, int showCommand)
         Destroy();
         return false;
     }
+
     m_window = CreateWindowExW(0, kClassName, L"Nereides Engine | Step 3 - Triangle", style,
                                CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left,
                                bounds.bottom - bounds.top, nullptr, nullptr, instance, this);
@@ -67,6 +72,7 @@ bool Win32Window::Create(HINSTANCE instance, int showCommand)
         Destroy();
         return false;
     }
+
     ShowWindow(m_window, showCommand);
     RAWINPUTDEVICE mouse{0x01, 0x02, 0, m_window};
     if (!RegisterRawInputDevices(&mouse, 1, sizeof(mouse)))
@@ -74,14 +80,18 @@ bool Win32Window::Create(HINSTANCE instance, int showCommand)
         ReportError(L"RegisterRawInputDevices", GetLastError());
         return false;
     }
+
     UpdateWindow(m_window);
     OutputDebugStringW(L"[Nereides] Win32 window created.\n");
     return true;
 }
 
+
+// 메세지 처리
 bool Win32Window::ProcessMessages(int& exitCode)
 {
     MSG message{};
+
     while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
     {
         if (message.message == WM_QUIT)
@@ -89,14 +99,19 @@ bool Win32Window::ProcessMessages(int& exitCode)
             exitCode = static_cast<int>(message.wParam);
             return false;
         }
+
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
+
     return true;
 }
 
+
+// Windows 창에 연결된 Win32Window 객체를 찾아 메시지 처리 위임
 LRESULT CALLBACK Win32Window::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    // // 창에 저장해둔 C++ 객체 주소를 가져옴
     auto* self = reinterpret_cast<Win32Window*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (message == WM_NCCREATE)
     {
@@ -105,17 +120,24 @@ LRESULT CALLBACK Win32Window::WindowProc(HWND window, UINT message, WPARAM wPara
         self->m_window = window;
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
+
     if (!self)
         return DefWindowProcW(window, message, wParam, lParam);
+
+    // 가져온 객체가 메시지를 처리하도록 호출
     const LRESULT result = self->ProcessMessage(window, message, wParam, lParam);
     if (message == WM_NCDESTROY)
     {
         SetWindowLongPtrW(window, GWLP_USERDATA, 0);
         self->m_window = nullptr;
     }
+
     return result;
 }
 
+
+// Windows 메시지에 따라 창 상태를 갱신하고 입력을 Input 객체에 전달
+// 창 닫기 요청과 종료 처리도 수행
 LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     if (m_messageHandler)
@@ -129,15 +151,18 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
         info->ptMinTrackSize = {minimum.right - minimum.left, minimum.bottom - minimum.top};
         return 0;
     }
+
     case WM_SETFOCUS:
         m_focused = true;
         if (m_input)
         {
             m_input->SetFocus(true);
+
             for (unsigned key = 0; key < 256; ++key)
                 m_input->ReconcilePhysicalKey(
                     key, (GetAsyncKeyState(static_cast<int>(key)) & 0x8000) != 0);
         }
+
         break;
     case WM_KILLFOCUS:
         m_focused = false;
@@ -155,6 +180,7 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
             m_input->SetKey(static_cast<unsigned>(wParam), false);
         break;
     case WM_LBUTTONDOWN:
+        // 창 안에서 시작한 드래그가 밖으로 이어질때의 처리
     case WM_LBUTTONUP:
         if (m_input)
             m_input->SetKey(VK_LBUTTON, message == WM_LBUTTONDOWN);
@@ -178,6 +204,7 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
             m_input->SetKey(VK_LBUTTON, false);
             m_input->SetKey(VK_RBUTTON, false);
         }
+
         break;
     case WM_MOUSEWHEEL:
         if (m_input)
@@ -194,7 +221,11 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
                 !(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE))
                 m_input->AddMouseDelta(raw.data.mouse.lLastX, raw.data.mouse.lLastY);
         }
+
         break;
+
+    // 변경된 내부 영역 크기와 최소화 상태 저장
+    // 최소화 시 기존 입력 정리
     case WM_SIZE:
         m_minimized = wParam == SIZE_MINIMIZED;
         if (m_minimized && m_input)
@@ -204,11 +235,14 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
         OutputDebugStringW(m_minimized ? L"[Nereides] Minimized.\n"
                                        : L"[Nereides] Size changed.\n");
         return 0;
+
     case WM_CLOSE:
         if (m_closeGuard && !m_closeGuard())
             return 0;
+
         DestroyWindow(window);
         return 0;
+
     case WM_DESTROY:
         OutputDebugStringW(L"[Nereides] Window destroyed.\n");
         PostQuitMessage(0);
@@ -217,6 +251,7 @@ LRESULT Win32Window::ProcessMessage(HWND window, UINT message, WPARAM wParam, LP
     // Keep native system shortcuts, including Alt+F4, working.
     return DefWindowProcW(window, message, wParam, lParam);
 }
+
 
 void Win32Window::Destroy() noexcept
 {

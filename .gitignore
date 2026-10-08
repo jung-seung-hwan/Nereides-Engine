@@ -9,7 +9,14 @@
 *.user
 *.suo
 *.VC.db
+*.VC.db-*
 *.VC.opendb
+
+# VS Code local state (keep shared project settings)
+/.vscode/*
+!/.vscode/settings.json
+!/.vscode/extensions.json
+*.code-workspace
 
 # Build outputs (keep source assets and third-party binaries trackable)
 /bin/
@@ -34,8 +41,14 @@ vcpkg_installed/
 /logs/
 /captures/
 /dist/
+/imgui.ini
+*.dmp
+*.stackdump
 *.tmp
 *.swp
+*.swo
+*~
+~$*
 Thumbs.db
 Desktop.ini
 .env

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+
 namespace nereides
 {
 namespace
@@ -30,10 +31,14 @@ void Require(bool condition, const char* message)
     if (!condition)
         throw std::runtime_error(message);
 }
+
+
 bool Near(double a, double b)
 {
     return std::abs(a - b) < 0.00001;
 }
+
+
 void TestInput()
 {
     Input input;
@@ -64,6 +69,8 @@ void TestInput()
     Require(input.Pressed('E') && input.Released('E') && !input.Held('E'),
             "quick tap in one frame");
 }
+
+
 void TestTime()
 {
     Time time;
@@ -87,6 +94,8 @@ void TestTime()
     time.Reset();
     Require(time.frame == 0 && time.real.elapsed == 0, "restart clocks");
 }
+
+
 class TestAction final : public Component
 {
 public:
@@ -95,6 +104,7 @@ public:
     {
         action(object, scene);
     }
+
     std::function<void(Object&, Scene&)> action;
 };
 class PhaseRecorder final : public Component
@@ -103,10 +113,12 @@ public:
     PhaseRecorder(UpdatePhase phase, std::vector<UpdatePhase>& order) : phase(phase), order(order)
     {
     }
+
     UpdatePhase Phase() const override
     {
         return phase;
     }
+
     void Update(Object&, Scene&, const FrameContext&) override
     {
         order.push_back(phase);
@@ -116,6 +128,8 @@ private:
     UpdatePhase phase;
     std::vector<UpdatePhase>& order;
 };
+
+
 void TestScene()
 {
     Scene scene;
@@ -161,6 +175,7 @@ void TestScene()
     DirectX::XMStoreFloat4x4(&world, camera.View(scene, cameraObject.Id()));
     Require(Near(world._43, 5), "camera inverse world");
     bool rejected = false;
+
     try
     {
         camera.Projection(0);
@@ -169,6 +184,7 @@ void TestScene()
     {
         rejected = true;
     }
+
     Require(rejected, "invalid camera aspect");
     scene.Destroy(cameraObject.Id());
     scene.Flush();
@@ -181,6 +197,8 @@ void TestScene()
                                               UpdatePhase::Late},
             "global update phases do not depend on object creation order");
 }
+
+
 void TestRenderInput()
 {
     Scene scene;
@@ -205,6 +223,8 @@ void TestRenderInput()
     frame.items.clear();
     Require(weak.expired(), "model released after final frame");
 }
+
+
 void TestAnimation()
 {
     auto model = std::make_shared<ModelData>();
@@ -249,6 +269,8 @@ void TestAnimation()
     b.value.position.x = 10;
     Require(Near(EvaluateTrajectory({a, b}, .25).position.x, 2.5), "independent sword trajectory");
 }
+
+
 void TestModelCache()
 {
     std::filesystem::create_directories("logs");
@@ -257,6 +279,7 @@ void TestModelCache()
         std::ofstream file(path);
         file << "o triangle\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
     }
+
     ModelCache cache;
     auto first = cache.Load(path), second = cache.Load(path);
     Require(first == second && !first->parts.empty(), "model cache shares owned import data");
@@ -269,6 +292,8 @@ void TestModelCache()
     Require(weak.expired(), "cache does not retain unused model");
     std::filesystem::remove(path);
 }
+
+
 void TestCollision()
 {
     Scene scene;
@@ -322,6 +347,8 @@ void TestCollision()
     ledger.End(7);
     Require(ledger.Record(7, 9), "attack cleanup");
 }
+
+
 void TestSceneIO()
 {
     Scene scene;
@@ -349,6 +376,7 @@ void TestSceneIO()
                   path); // Atomic replacement of an existing file.
     loaded.scene.Find(loaded.player)->Get<Parameters>()->values["duration"].value = -1;
     bool invalidParameter = false;
+
     try
     {
         SceneIO::Save(loaded.scene, loaded.camera, loaded.player, path);
@@ -357,6 +385,7 @@ void TestSceneIO()
     {
         invalidParameter = true;
     }
+
     auto preserved = SceneIO::Load(path, cache);
     Require(invalidParameter && Near(preserved.scene.Find(preserved.player)
                                          ->Get<Parameters>()
@@ -368,7 +397,9 @@ void TestSceneIO()
         std::ofstream file(path);
         file << "{\"version\":999}";
     }
+
     bool failed = false;
+
     try
     {
         SceneIO::Load(path, cache);
@@ -377,9 +408,12 @@ void TestSceneIO()
     {
         failed = true;
     }
+
     Require(failed && loaded.scene.Find(loaded.player), "failed load preserves live scene");
     std::filesystem::remove(path);
 }
+
+
 void TestConsoleRecords()
 {
     const auto before = Log::Entries();
@@ -404,6 +438,8 @@ void TestConsoleRecords()
     Require(Log::Format(entries.back()).find("[Warning]") != std::string::npos,
             "clipboard and file format includes severity");
 }
+
+
 void TestEditorHistory()
 {
     Scene scene;
@@ -450,16 +486,21 @@ void TestEditorHistory()
     Require(history.Dirty(), "undo away from saved state becomes dirty");
     history.Accept(1);
     Require(!history.Dirty(), "redo to saved state becomes clean");
+
     for (int i = 0; i < 100; ++i)
         history.Commit(std::to_string(i));
     unsigned count = 0;
+
     while (history.CanUndo())
     {
         history.Accept(-1);
         ++count;
     }
+
     Require(count == 64, "history bounded to 64 undo operations");
 }
+
+
 void TestTransitionsAndEvents()
 {
     Transition playback;
@@ -526,6 +567,7 @@ void TestTransitionsAndEvents()
     const auto loaded = Clip2D::Load("data/presentation/preview.json");
     Require(loaded.layers.size() == 3, "presentation data loading");
     std::weak_ptr<const MeshData> released;
+
     for (int restart = 0; restart < 32; ++restart)
     {
         Scene cycle;
@@ -558,6 +600,8 @@ void TestTransitionsAndEvents()
     }
 }
 } // namespace
+
+
 int RunEngineTests()
 {
     try
@@ -584,6 +628,8 @@ int RunEngineTests()
         return 1;
     }
 }
+
+
 int RunModelTest(const std::filesystem::path& path)
 {
     try
@@ -592,15 +638,18 @@ int RunModelTest(const std::filesystem::path& path)
         const auto model = cache.Load(path);
         Require(!model->parts.empty(), "model probe requires mesh parts");
         ModelComponent component(model);
+
         for (std::size_t clip = 0; clip < model->clips.size(); ++clip)
         {
             component.player.Play(clip, false);
+
             for (int sample = 0; sample < 5; ++sample)
             {
                 component.player.Advance(model->clips[clip].duration / 4);
                 RenderFrame frame;
                 AppendModelDraws(component, DirectX::XMMatrixIdentity(), frame);
                 Require(!frame.items.empty(), "model draws missing");
+
                 for (const auto& item : frame.items)
                     for (const auto& bone : item.bones)
                         for (const auto& row : bone.m)
@@ -608,6 +657,7 @@ int RunModelTest(const std::filesystem::path& path)
                                 Require(std::isfinite(value), "nonfinite bone matrix");
             }
         }
+
         using namespace DirectX;
         Win32Window window;
         Require(window.Create(GetModuleHandleW(nullptr), SW_HIDE), "probe window");
@@ -619,6 +669,7 @@ int RunModelTest(const std::filesystem::path& path)
         RenderFrame frame;
         AppendModelDraws(component, XMMatrixIdentity(), frame);
         XMFLOAT3 low{FLT_MAX, FLT_MAX, FLT_MAX}, high{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+
         for (const auto& item : frame.items)
             for (const auto& vertex : item.mesh->vertices)
             {
@@ -626,6 +677,7 @@ int RunModelTest(const std::filesystem::path& path)
                 if (!item.bones.empty())
                 {
                     auto skinned = XMVectorZero();
+
                     for (unsigned i = 0; i < 4; ++i)
                         if (vertex.weights[i] > 0)
                             skinned += XMVector3TransformCoord(
@@ -633,6 +685,7 @@ int RunModelTest(const std::filesystem::path& path)
                                        vertex.weights[i];
                     p = skinned;
                 }
+
                 p = XMVector3TransformCoord(p, XMLoadFloat4x4(&item.world));
                 XMFLOAT3 point;
                 XMStoreFloat3(&point, p);
@@ -670,6 +723,7 @@ int RunModelTest(const std::filesystem::path& path)
             Log::Write(LogLevel::Info, std::string("GPU animation pixel change=") +
                                            (first != second ? "yes" : "no (inspect static clip)"));
         }
+
         Log::Write(LogLevel::Info, "Imported bounds extent " + std::to_string(high.x - low.x) +
                                        ", " + std::to_string(high.y - low.y) + ", " +
                                        std::to_string(high.z - low.z));

@@ -1,4 +1,5 @@
 #pragma once
+
 namespace nereides
 {
 inline constexpr char kMeshShader[] = R"hlsl(

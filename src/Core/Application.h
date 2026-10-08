@@ -6,6 +6,7 @@
 #include "Scene/Scene.h"
 #include "Collision/Collision.h"
 #include "Editor/Editor.h"
+
 namespace nereides
 {
 struct RunOptions
@@ -13,6 +14,7 @@ struct RunOptions
     bool automatic = false, legacyTriangle = false, editor = true, preview = false, resize = false,
          benchmark = false;
 };
+
 class Application final
 {
 public:
@@ -23,6 +25,7 @@ public:
         m_window.SetCloseGuard({});
         m_renderer.SetOverlay({});
     }
+
     int Run(HINSTANCE instance, int showCommand, const RunOptions& options);
 
 private:

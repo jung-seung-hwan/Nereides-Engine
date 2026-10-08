@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <numeric>
 #include <psapi.h>
+
 namespace nereides
 {
 int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& options)
@@ -16,9 +17,13 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     m_window.SetInput(&m_input);
     if (!m_window.Create(instance, smokeTest ? SW_HIDE : showCommand))
         return 1;
+
     if (!m_renderer.Initialize(m_window.Handle(), m_window.Width(), m_window.Height()))
         return 1;
+
     Log::Write(LogLevel::Info, "Application initialized");
+
+    // 에디터 예제 등록 (객체에 컴포넌트를 추가하고, 장면에 배치)
     auto& player = m_scene.Create("Example player");
     m_player = player.Id();
     player.Add<MoveComponent>();
@@ -42,11 +47,14 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     camera.transform.position = {0, 1, -6};
     auto& parameters = target.Add<Parameters>();
     parameters.values["Example weakpoint duration"] = {5, 0.1, 60};
+
+    // 에디터 초기화
     const bool editorEnabled = options.editor;
     if (editorEnabled)
     {
         if (!m_editor.Initialize(m_window.Handle(), m_renderer))
             return 1;
+
         if (!smokeTest)
             m_window.SetCloseGuard([this] { return m_editor.RequestClose(); });
         m_window.SetMessageHandler(
@@ -55,50 +63,71 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         if (presentationTest)
             m_editor.StartPreview();
     }
+
+    // 경과 시간 측정
     auto previous = std::chrono::steady_clock::now();
     int exitCode = 0;
     bool frameVerified = false;
     std::vector<double> frameMilliseconds;
+
+    // 프로그램 실행 루프
     while (true)
     {
+        // 반복 시간 측정용
         const auto frameStart = std::chrono::steady_clock::now();
         m_input.BeginFrame();
         if (!m_window.ProcessMessages(exitCode))
             break;
         const auto now = std::chrono::steady_clock::now();
+
+        // 이번 프레임의 시간 간격 계산 (초 단위)
         const double delta =
             presentationTest ? 1. / 60 : std::chrono::duration<double>(now - previous).count();
         previous = now;
+
+        // 창 최소화 처리
         if (m_window.IsMinimized() || m_window.Width() == 0 || m_window.Height() == 0)
         {
             WaitMessage();
+
+            // 대기 시간 제외하기 위해 기준 시간 초기화
             previous = std::chrono::steady_clock::now();
             continue;
         }
+
+        // 에디터 활성화 시, 에디터 프레임 처리
         if (editorEnabled &&
             m_editor.Begin(m_scene, m_camera, m_player, m_cameraData, m_time, m_input, m_collision))
         {
             m_collision.Reset();
             m_input.DiscardHeld();
         }
+
+        // 게임 일시정지 처리 (ESC 키)
         if (m_input.Pressed(VK_ESCAPE) && (!editorEnabled || m_editor.Playing()))
         {
             m_time.paused = !m_time.paused;
             m_input.DiscardHeld();
             Log::Write(LogLevel::Info, m_time.paused ? "Paused" : "Resumed");
         }
+
         const bool menuPause = m_time.paused;
         const bool presentationBlocked = editorEnabled && m_editor.BlocksCombat();
         if (presentationBlocked != m_time.combatStopped || presentationBlocked)
             m_input.DiscardHeld();
+
         m_time.combatStopped = presentationBlocked;
         m_time.paused = menuPause || (!smokeTest && !m_window.IsFocused());
         m_time.Advance(delta);
         m_time.paused = menuPause;
         if (editorEnabled)
             m_editor.AdvancePresentation(m_time.presentation.delta);
+
+        // Scene의 컴포넌트 행동 실행
         if (!editorEnabled || m_editor.Playing())
             m_scene.Update({m_input, m_time});
+
+        // 갱신된 위치로 충돌검사
         std::vector<Contact> contacts;
         if (m_time.combat.delta > 0)
             contacts = m_collision.Step(m_scene, m_time.combat.elapsed - m_time.combat.delta,
@@ -108,6 +137,8 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         for (const auto& contact : contacts)
             if (contact.kind == ContactKind::Enter)
                 Log::Write(LogLevel::Info, "Trigger entered at " + std::to_string(contact.time));
+
+        // 디버그 표시
         if (editorEnabled)
             m_editor.DrawDebug(m_scene, m_camera, m_cameraData, m_collision);
         if (editorTest && m_time.frame == 3)
@@ -116,6 +147,8 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
             m_renderer.RequestCapture("captures/presentation.bmp");
         if (!m_renderer.Resize(m_window.Width(), m_window.Height()))
             return 1;
+
+        // 장면 렌더링 정보 전달
         if (smokeTest && !sceneTest)
         {
             if (!m_renderer.Render(!frameVerified))
@@ -134,6 +167,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
             if (!m_renderer.RenderScene(frame, verifyPixels))
                 return 1;
         }
+
         frameVerified = true;
         if (options.resize && (m_time.frame == 2 || m_time.frame == 5))
         {
@@ -144,12 +178,15 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
                               SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE))
                 return 1;
         }
+
         if (options.resize && m_time.frame == 4 &&
             (m_window.Width() != 900 || m_window.Height() != 600))
             return 1;
+
         if (options.resize && m_time.frame == 7 &&
             (m_window.Width() != 1280 || m_window.Height() != 720))
             return 1;
+
         if (options.benchmark && m_time.frame > 30)
             frameMilliseconds.push_back(std::chrono::duration<double, std::milli>(
                                             std::chrono::steady_clock::now() - frameStart)
@@ -160,11 +197,13 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
                                L" | WASD / Esc pause";
             SetWindowTextW(m_window.Handle(), title.c_str());
         }
+
         if (smokeTest && (options.benchmark ? m_time.frame >= 210
                                             : m_time.real.elapsed >= .5 &&
                                                   (!options.resize || m_time.frame >= 8)))
             PostMessageW(m_window.Handle(), WM_CLOSE, 0, 0);
     }
+
     if (options.benchmark && !frameMilliseconds.empty())
     {
         const double average =
@@ -182,6 +221,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
                 std::to_string(frameMilliseconds[frameMilliseconds.size() * 95 / 100]) +
                 " working_set_MiB=" + std::to_string(double(memory.WorkingSetSize) / 1048576));
     }
+
     m_renderer.SetOverlay({});
     m_window.SetMessageHandler({});
     Log::Write(LogLevel::Info, "Application stopped");

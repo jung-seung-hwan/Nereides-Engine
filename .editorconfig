@@ -1,0 +1,10 @@
+# Use UTF-8 for text files opened in EditorConfig-aware editors.
+root = true
+
+[*]
+charset = utf-8
+
+[*.{h,hpp,cpp}]
+indent_style = space
+indent_size = 4
+tab_width = 4

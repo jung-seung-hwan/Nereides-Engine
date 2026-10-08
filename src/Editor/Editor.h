@@ -10,6 +10,7 @@
 #include <Windows.h>
 #include <d3d11.h>
 struct ImDrawList;
+
 namespace nereides
 {
 class Editor final
@@ -18,18 +19,22 @@ public:
     ~Editor();
     bool Initialize(HWND window, D3D11Renderer& renderer);
     void Message(HWND, UINT, WPARAM, LPARAM);
+
     // Returns true when live scene is replaced; callers must reset transient contacts/input.
     bool Begin(Scene&, ObjectId& camera, ObjectId& player, Camera&, Time&, Input&, CollisionWorld&);
     void Render();
     void DrawDebug(const Scene&, ObjectId, const Camera&, const CollisionWorld&);
     void AdvancePresentation(double dt);
+
     bool BlocksCombat() const
     {
         return m_transition.BlocksCombat();
     }
+
     void StartPreview();
     void ApplyView(RenderFrame&) const;
     bool RequestClose();
+
     bool Playing() const
     {
         return m_playing;

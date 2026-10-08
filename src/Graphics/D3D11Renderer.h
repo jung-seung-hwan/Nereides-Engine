@@ -23,26 +23,32 @@ public:
     bool Initialize(HWND window, std::uint32_t width, std::uint32_t height);
     bool Resize(std::uint32_t width, std::uint32_t height);
     bool PrepareSceneView(std::uint32_t width, std::uint32_t height);
+
     ID3D11ShaderResourceView* SceneView() const
     {
         return m_sceneView.Get();
     }
+
     bool Render(bool verifyFrame = false);
     bool RenderScene(const RenderFrame& frame, bool verifyFrame = false,
                      std::uint64_t* pixelHash = nullptr);
     void Shutdown() noexcept;
+
     ID3D11Device* Device() const
     {
         return m_device.Get();
     }
+
     ID3D11DeviceContext* Context() const
     {
         return m_context.Get();
     }
+
     void SetOverlay(std::function<void()> draw)
     {
         m_overlay = std::move(draw);
     }
+
     void RequestCapture(std::filesystem::path path)
     {
         m_capturePath = std::move(path);
@@ -52,21 +58,30 @@ private:
     bool CreateBackBuffer();
     bool CreateTriangle();
     bool CreateMeshPipeline();
+
     struct GpuMesh
     {
         std::weak_ptr<const MeshData> source;
         Microsoft::WRL::ComPtr<ID3D11Buffer> vertices, indices;
         UINT count = 0;
     };
+
     GpuMesh* Upload(const std::shared_ptr<const MeshData>& mesh);
+
     bool VerifyTriangleFrame();
     bool VerifySceneView();
     bool ReadbackHash(std::uint64_t& hash);
     bool Check(HRESULT result, const wchar_t* operation);
 
+    /*
+    Device	    버퍼·텍스처·셰이더 등 GPU 자원 생성
+    Context	    사용할 자원과 상태를 설정하고 그리기 명령 전달
+    SwapChain	창에 표시할 화면 버퍼와 화면 제출 관리
+    */
     Microsoft::WRL::ComPtr<ID3D11Device> m_device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> m_swapChain;
+
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_renderTarget;
     Microsoft::WRL::ComPtr<ID3D11Buffer> m_vertexBuffer;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
