@@ -35,7 +35,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCo
             path = path.substr(1, path.size() - 2);
         return nereides::RunModelTest(std::filesystem::path(path));
     }
+
+    // 실행관리자
     nereides::Application application;
+
+    // 실행 모드 설정
+    /*
+    일반 에디터	        editor = true	                    에디터를 열고 사용자가 종료할 때까지 실행
+    장면 출력 검사	    automatic = true, editor = false	에디터 없이 장면을 검사하고 자동 종료
+    창 크기 변경 검사  	resize = true	                    검사 중 창 크기를 바꿔 출력 확인
+    성능 측정	        benchmark = true	                정해진 구간의 프레임 시간 등을 측정
+    */
     nereides::RunOptions options;
     if (!arguments.empty())
     {
