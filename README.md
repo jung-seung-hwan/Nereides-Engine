@@ -9,6 +9,31 @@ Windows / C++20 / DirectX 11 공통 엔진 기반과 편집용 샌드박스다. 
 - [콘텐츠와 렌더 연결 안내](docs/integration-contracts.md): 현재 API·수명·프레임 순서와 남은 통합.
 - [초기 구현 기록](docs/technical-review.md): 창·DX11·첫 삼각형의 개발 이력.
 
+## 폴더 안내
+
+| 경로 | 용도 | Git 관리 |
+| --- | --- | --- |
+| src/ | 엔진·게임 C++ 코드와 내장 셰이더. Tests는 검증 코드, Sandbox는 사용 예제 | 포함 |
+| scripts/ | 의존성 설치·프로젝트 동기화·빌드 검증·배포 자동화 PowerShell 스크립트. 게임 동작 코드는 src에 작성 | 포함 |
+| docs/ | 구현·사용·협업 문서 | 포함 |
+| docs/planning/ | 게임 기획서·기술검토서·역할 분담 등 원본 문서 | 포함 |
+| docs/references/ | 기획과 외형 검토용 참고 이미지 | 포함 |
+| docs/images/ | 문서에 사용하는 에디터 화면 이미지 | 포함 |
+| assets/ | 드라이브로 공유하는 모델·모션·텍스처·음원·연출 리소스. [배치 안내](assets/README.md) 참조 | 안내·폴더 구조만 포함 |
+| data/scenes/ | 에디터로 저장하는 공유 씬 배치 데이터 | 포함 |
+| data/presentation/ | 연출 설정 데이터. 현재 preview.json 포함 | 포함 |
+| triplets/ | vcpkg 의존성 빌드 규격 | 포함 |
+| MMD/ | 기존 로컬 MMD 원본 자료. 기존 참조를 위해 위치 유지 | 제외 |
+| bin/ · obj/ | 실행 파일·DLL과 중간 빌드 결과 | 제외 |
+| vcpkg_installed/ | 설치한 외부 라이브러리 | 제외 |
+| logs/ · captures/ · output/ | 로그·검증 캡처·임시 도구 산출물. 필요 시 다시 생성 | 제외 |
+| dist/ | 배포 패키지 | 제외 |
+| .vs/ · *.user | Visual Studio 개인 설정·캐시 | 제외 |
+
+루트의 `.sln`, `.vcxproj`, `Dependencies.props`, `vcpkg.json`은 프로젝트·빌드 진입 파일이므로 유지한다. `.vscode/settings.json`, `.clang-format`, `.editorconfig`, `.gitattributes`는 공통 편집 설정이다. `.gitkeep`은 빈 폴더를 Git으로 공유하기 위한 빈 파일이다.
+
+컴포넌트 동작은 `src`의 C++ 클래스에 작성한다. 예를 들어 `MoveComponent.h`가 객체에 붙이는 이동 코드이며, `scripts` 폴더의 자동화 스크립트와는 용도가 다르다.
+
 ## 최초 준비
 
 VS2022의 C++ 데스크톱 개발 도구(v143)와 Windows SDK를 준비한다. 프로젝트는 일반 Visual Studio 솔루션을 사용한다. Debug 실행에는 Windows Graphics Tools의 DX11 디버그 레이어가 필요하다.

@@ -21,7 +21,22 @@
 # Build outputs (keep source assets and third-party binaries trackable)
 /bin/
 /obj/
-/assets/
+# External assets stay on the shared drive; only the layout and guide are tracked.
+/assets/**
+!/assets/models/
+!/assets/models/.gitkeep
+!/assets/animations/
+!/assets/animations/.gitkeep
+!/assets/textures/
+!/assets/textures/.gitkeep
+!/assets/audio/
+!/assets/audio/bgm/
+!/assets/audio/bgm/.gitkeep
+!/assets/audio/sfx/
+!/assets/audio/sfx/.gitkeep
+!/assets/presentation/
+!/assets/presentation/.gitkeep
+!/assets/README.md
 /x64/
 /x86/
 **/Debug/
@@ -41,6 +56,7 @@ vcpkg_installed/
 /logs/
 /captures/
 /dist/
+/output/
 /imgui.ini
 *.dmp
 *.stackdump

@@ -9,6 +9,6 @@
 
 [로드맵](implementation-roadmap.md)의 단계 문서와 [연결 안내](integration-contracts.md)를 보고 같은 계약으로 작업한다. 변경할 때 사용하는 담당자에게 이유·영향·사용 예제·검증 장면을 함께 전달한다.
 
-.sln/.vcxproj/.filters, 소스, 의존성 manifest/triplet, 데이터 규격과 문서는 추적한다. bin/obj/.vs/vcpkg_installed/logs/captures/dist와 개인 설정은 제외한다. MMD와 assets는 각 팀원이 준비하며 이 구현 커밋에 넣지 않았다. 기존 기획 DOCX의 작업 중 변경도 별도로 유지했다.
+.sln/.vcxproj/.filters, 소스, 의존성 manifest/triplet, 데이터 규격과 문서는 추적한다. bin/obj/.vs/vcpkg_installed/logs/captures/dist와 개인 설정은 제외한다. MMD와 assets의 실물 에셋은 별도 드라이브에서 준비한다. assets의 안내와 표준 폴더용 .gitkeep만 Git으로 관리한다. 현재 폴더 배치는 루트 README의 폴더 안내를 따른다. 기존 기획 DOCX의 작업 중 변경도 별도로 유지했다.
 
 통합 전 scripts/verify.ps1로 Debug/Release를 확인한다. 모델·콘텐츠를 바꾸면 해당 로컬 에셋 시험과 실제 장면을 추가한다. 자동 검사 통과를 전체 게임 합격으로 바꾸지 않는다. 기능별 임시값·미정 규칙·미검증 동작은 단계 문서에 남긴다.
