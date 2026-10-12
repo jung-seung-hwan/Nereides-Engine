@@ -9,6 +9,17 @@
 
 namespace nereides
 {
+// 콘텐츠의 피해·파괴 우선순위는 이 결과 처리 지점에 연결한다.
+// 현재 샌드박스는 후보를 로그로만 표시한다.
+void Application::ResolveContacts(const std::vector<Contact>& contacts)
+{
+    for (const auto& contact : contacts)
+        if (contact.kind == ContactKind::Enter)
+            Log::Write(LogLevel::Info, "tick=" + std::to_string(m_time.tick) +
+                                           " Trigger entered at " + std::to_string(contact.time));
+}
+
+
 int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& options)
 {
     const bool smokeTest = options.automatic,
@@ -69,6 +80,8 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     int exitCode = 0;
     bool frameVerified = false;
     std::vector<double> frameMilliseconds;
+    FixedStep fixed;
+    bool wasSimulating = false;
 
     // 프로그램 실행 루프
     while (true)
@@ -88,6 +101,9 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         // 창 최소화 처리
         if (m_window.IsMinimized() || m_window.Width() == 0 || m_window.Height() == 0)
         {
+            fixed.Reset();
+            wasSimulating = false;
+            m_input.DiscardHeld();
             WaitMessage();
 
             // 대기 시간 제외하기 위해 기준 시간 초기화
@@ -96,9 +112,13 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         }
 
         // 에디터 활성화 시, 에디터 프레임 처리
+        const bool wasPlaying = editorEnabled && m_editor.Playing();
+        bool sceneReplaced = false;
         if (editorEnabled &&
             m_editor.Begin(m_scene, m_camera, m_player, m_cameraData, m_time, m_input, m_collision))
         {
+            sceneReplaced = true;
+            m_events.Reset();
             m_collision.Reset();
             m_input.DiscardHeld();
         }
@@ -118,25 +138,61 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
 
         m_time.combatStopped = presentationBlocked;
         m_time.paused = menuPause || (!smokeTest && !m_window.IsFocused());
-        m_time.Advance(delta);
+        const bool simulating =
+            (!editorEnabled || m_editor.Playing()) && !m_time.paused && !presentationBlocked;
+        const bool restartStep = sceneReplaced || simulating != wasSimulating ||
+                                 (editorEnabled && wasPlaying != m_editor.Playing());
+        if (restartStep)
+        {
+            fixed.Reset();
+            m_input.DiscardHeld();
+        }
+        wasSimulating = simulating;
+
+        m_time.AdvanceFrame(delta);
         m_time.paused = menuPause;
         if (editorEnabled)
             m_editor.AdvancePresentation(m_time.presentation.delta);
 
-        // Scene의 컴포넌트 행동 실행
-        if (!editorEnabled || m_editor.Playing())
-            m_scene.Update({m_input, m_time});
+        // 고정 갱신: 입력 → 행동/애니메이션 → 충돌 → 결과 → 이벤트 → 실제 삭제.
+        // 재개 프레임의 delta는 정지 중 시간이 섞일 수 있으므로 다음 프레임부터 누적.
+        const unsigned steps = simulating ? fixed.Accumulate(restartStep ? 0 : delta) : 0;
+        for (unsigned step = 0; step < steps; ++step)
+        {
+            if (m_time.paused || m_time.combatStopped || (editorEnabled && m_editor.BlocksCombat()))
+            {
+                fixed.Reset();
+                m_input.DiscardHeld();
+                break;
+            }
+            const Input tickInput = m_input.ConsumeTick();
+            m_time.AdvanceTick(fixed.Step());
+            m_scene.FixedUpdate({tickInput, m_time}, false);
 
-        // 갱신된 위치로 충돌검사
-        std::vector<Contact> contacts;
-        if (m_time.combat.delta > 0)
-            contacts = m_collision.Step(m_scene, m_time.combat.elapsed - m_time.combat.delta,
-                                        m_time.combat.elapsed);
-        else
+            std::vector<Contact> contacts;
+            if (m_time.combat.delta > 0)
+                contacts = m_collision.Step(m_scene, m_time.combat.elapsed - m_time.combat.delta,
+                                            m_time.combat.elapsed);
+            else
+                m_collision.Reset();
+            ResolveContacts(contacts);
+            m_events.Dispatch(m_scene);
+            m_scene.Flush();
+        }
+        if (!simulating)
+        {
+            fixed.Reset();
+            m_input.ClearPendingTick();
             m_collision.Reset();
-        for (const auto& contact : contacts)
-            if (contact.kind == ContactKind::Enter)
-                Log::Write(LogLevel::Info, "Trigger entered at " + std::to_string(contact.time));
+        }
+
+        // Play 중 프레임 갱신은 tick 수와 무관하게 한 번 실행한다.
+        // 일시정지·전환 중에도 호출해 UI/연출 갱신을 허용한다. Edit 모드에서는 실행하지 않는다.
+        if (!editorEnabled || m_editor.Playing())
+        {
+            const Time frameTime = m_time.FrameView();
+            m_scene.Update({m_input, frameTime});
+        }
 
         // 디버그 표시
         if (editorEnabled)

@@ -137,7 +137,8 @@ Scene이 객체를 만들고, 그 객체가 이동 컴포넌트를 소유하게 
  → 일시정지·포커스·연출 상태 반영
  → 시간 갱신
  → 연출 진행
- → 실행 조건이 맞으면 Scene::Update
+ → 실행 조건이 맞으면 Scene::FixedUpdate를 0회 이상
+ → Play 중 Scene::Update를 한 번
  → 전투 시간이 진행했으면 충돌 검사
  → 디버그 표시와 렌더러 크기 갱신
  → 렌더링 데이터 수집과 렌더 호출
@@ -159,19 +160,19 @@ Scene이 객체를 만들고, 그 객체가 이동 컴포넌트를 소유하게 
 
 ### delta time과 고정 tick
 
-`delta time`은 두 갱신 사이에 경과한 시간이고, 고정 tick은 게임 상태를 일정한 시간 간격으로 계산하는 실행 규칙이다. 서로 대체하는 별도 카운터라고만 생각하면 부족하다. 고정 tick에서도 한 번의 계산에 사용할 delta가 있으며, 60Hz라면 보통 `1/60초`다.
+`delta time`은 두 갱신 사이에 경과한 시간이고, 고정 tick은 게임 상태를 일정한 시간 간격으로 계산하는 실행 규칙이다. 서로 대체하는 별도 카운터라고만 생각하면 부족하다. 고정 tick에서도 한 번의 계산에 사용할 delta가 있으며, 현재 선택한 50Hz라면 `1/50초 = 0.02초`다.
 
 예를 들어 속도가 초당 3이라면 이동량은 `3 × delta`다.
 
 ```text
 가변 업데이트: 프레임마다 실제 경과 시간으로 한 번 계산
-고정 업데이트: 누적된 시간에 따라 1/60초 계산을 0번 이상 수행
+고정 업데이트: 누적된 시간에 따라 1/50초 계산을 0번 이상 수행
 렌더링: 화면을 출력할 프레임마다 수행
 ```
 
 고정 tick은 계산 간격을 일정하게 하여 전투·물리·시간 판정의 동작을 예측하기 쉽게 한다. 큰 delta로 한 번에 이동하는 상황을 줄이는 데 도움이 되지만, 모든 충돌 누락을 자동으로 해결하지는 않는다. 빠른 물체는 한 tick 안에서도 얇은 대상을 통과할 수 있으므로 연속 충돌 검사 등 별도 대책이 필요할 수 있다. 결정성도 고정 tick 하나만으로 보장되지 않는다.
 
-현재 일반 실행에는 시간 누적 기반의 고정 60Hz 루프가 없다. 테스트에서 delta를 `1/60`로 지정하는 것만으로 그 구조가 구현되었다고 볼 수 없다.
+2026-10-12 일반 실행에 누적 시간 기반 50Hz 루프를 추가했다. `FixedStep::DefaultHz`로 주기를 설정하며, 테스트용 프레임 delta `1/60`과는 별개다. 한 프레임당 최대 8회 실행하고 초과한 완전한 tick 시간은 버린다.
 
 ### 렌더 호출과 게임 상태 계산
 
@@ -218,7 +219,8 @@ struct FrameContext
 입력과 시간 원본을 복사하지 않고 참조한다. `const`는 이 참조를 통해 수정하지 못하게 한다. 원본이 프로그램 전체에서 절대 변하지 않는다는 뜻은 아니다.
 
 ```text
-Application → FrameContext → Scene::Update → Component::Update
+Application → FrameContext → Scene::FixedUpdate → Component::FixedUpdate (게임 계산)
+Application → FrameContext → Scene::Update → Component::Update (프레임 연출)
 ```
 
 현재 FrameContext에는 충돌 결과나 리소스 접근 기능이 포함되어 있지 않다. 프레임 컨텍스트를 컴포넌트가 장기간 보관하는 설계도 현재 설명 범위에 없다.
@@ -237,11 +239,13 @@ Application → FrameContext → Scene::Update → Component::Update
 ```cpp
 virtual ~Component() = default;
 virtual void Update(Object&, Scene&, const FrameContext&) {}
+virtual void FixedUpdate(Object&, Scene&, const FrameContext&) {}
 virtual UpdatePhase Phase() const { return UpdatePhase::Logic; }
 ```
 
 - 가상 소멸자: Component 포인터로 삭제해도 파생 컴포넌트의 정리가 실행되도록 한다.
-- `virtual Update`: 각 컴포넌트가 자신의 행동을 구현할 수 있는 공통 함수.
+- `virtual Update`: 프레임마다 실행할 시각적 처리를 구현한다.
+- `virtual FixedUpdate`: 고정 tick의 이동·전투·애니메이션을 구현한다.
 - 기본 Update는 비어 있으므로 데이터만 가진 컴포넌트도 가능하다.
 - `Phase()`를 재정의하지 않으면 Logic 단계다.
 - `enabled = false`: 컴포넌트를 보관하되 업데이트 대상에서 제외.
@@ -315,7 +319,7 @@ Flush는 업데이트 중이면 아무 작업 없이 반환한다. 업데이트 
 
 Clear는 전체 객체를 삭제 예약한 다음 Flush를 호출한다. 따라서 업데이트 밖에서 Clear를 호출하면 그 호출 안에서 실제 삭제까지 이루어진다.
 
-현재 Scene::Update는 내부 마지막에 Flush를 호출한 뒤 반환한다. Application의 충돌 검사보다 먼저 실행되므로 ‘프레임 전체 종료’ 또는 ‘전투 tick 전체 종료’와 동일한 시점으로 보면 안 된다.
+Scene::Update의 기본 호출은 끝에서 Flush한다. 일반 실행은 `FixedUpdate(context, false)`를 사용해 자동 Flush를 미루고, 충돌 → 결과 → 이벤트 전달 뒤 tick 마지막에 Application이 Flush한다. 각 경로는 별도 스냅샷을 사용한다. FixedUpdate 중 생성한 대상은 같은 프레임의 후속 Update에 참여할 수 있다.
 
 ### 단계별 Update
 
@@ -389,7 +393,7 @@ Projection 함수가 소스에서 View보다 위에 있어도 실행 순서나 �
 | 에디터 프레임 처리 | 뒤의 입력·충돌 Reset은 Begin 반환 조건이 참일 때 |
 | 모든 객체 ID 반환 | 삭제 예약된 객체 제외, 비활성 객체 포함 |
 | Clear의 삭제 예약 | 업데이트 밖에서는 같은 호출에서 실제 삭제 가능 |
-| Update 후 Flush | Update 내부 끝에서 호출하며 Clear에서도 호출 가능 |
+| Update 후 Flush | 프레임 Update는 끝에서, 일반 실행의 FixedUpdate는 충돌·결과·이벤트 뒤 호출. Clear에서도 호출 가능 |
 | 활성 여부 확인 | 자기 자신뿐 아니라 조상까지 확인 |
 | 새 객체는 다음 프레임부터 | 업데이트 목록 확보 후 추가된 대상의 Update에 관한 규칙 |
 
@@ -414,8 +418,8 @@ KeepWorld는 부모의 크기가 0이거나 비균등 크기와 회전이 결합
 
 ### 엔진 목표와 관련해 따로 남은 기반 작업
 
-- 일반 실행의 고정 60Hz tick: 시간 누적, 따라잡기 정책, tick별 입력 소비 등을 함께 설계해야 한다.
-- 삭제의 최종 시점: Scene 업데이트, 충돌, 이벤트 처리 중 어디까지를 한 tick으로 볼지 정하고 실제 삭제 경계를 맞춰야 한다.
+- 고정 50Hz tick 기반은 구현했다. 따라잡기 한도 8회는 실제 전투에서 실측·조정하고, 렌더 보간과 입력 시각 기반 재현은 후속 검토한다.
+- 일반 실행의 삭제 경계는 이벤트 처리 뒤로 연결했다. 콘텐츠는 결과 처리 중 Destroy/Remove로 예약하고 Flush/Clear를 직접 호출하지 않는다. 실제 전투의 결과 우선순위는 별도 구현한다.
 
 이 두 항목은 이번 문서 작업에서 구현하지 않았다.
 
@@ -428,7 +432,7 @@ Scene.h 설명은 완료했다. 다음에는 실제 게임 행동 예제로 넘�
 ```text
 Application에서 Object 생성
  → Add<MoveComponent>()로 부착
- → Scene::Update가 컴포넌트 Update 호출
+ → Scene::FixedUpdate가 컴포넌트 FixedUpdate 호출
  → FrameContext에서 입력과 시간 조회
  → Object의 로컬 위치 변경
  → 후속 충돌 검사와 렌더링에 반영

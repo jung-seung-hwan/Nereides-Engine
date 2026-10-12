@@ -11,7 +11,7 @@ namespace nereides
 class MoveComponent final : public Component
 {
 public:
-    void Update(Object& object, Scene&, const FrameContext& frame) override
+    void FixedUpdate(Object& object, Scene&, const FrameContext& frame) override
     {
         // 키 입력을 방향으로 변경
         // Held()로 계속 누르는 상태 반영

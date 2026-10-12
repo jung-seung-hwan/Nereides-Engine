@@ -42,14 +42,17 @@ enum class UpdatePhase
 };
 
 // Object에 붙이는 기능 또는 데이터의 공통 기반 클래스
-// Scene이 활성 상태와 실행 단계를 확인해 Update()를 호출
+// Scene이 활성 상태와 실행 단계를 확인해 Update/FixedUpdate를 각각 호출
 class Component
 {
 public:
     virtual ~Component() = default;
 
-    // 소유 객체, 장면, 입력·시간을 전달받아 행동 실행
+    // 렌더 프레임마다 호출. 시각적 연출은 time.presentation.delta를 사용한다.
     virtual void Update(Object&, Scene&, const FrameContext&) {}
+
+    // 고정 tick마다 호출. 이동·전투·전투 애니메이션은 time.combat.delta를 사용한다.
+    virtual void FixedUpdate(Object&, Scene&, const FrameContext&) {}
 
     virtual UpdatePhase Phase() const
     {
@@ -155,12 +158,16 @@ public:
     void Destroy(ObjectId id); // Immediately invisible; memory released at Flush.
     void Clear();
     void Flush();
-    void Update(const FrameContext& context);
+    // 각 경로는 별도 스냅샷으로 Logic → Animation → Late를 실행한다.
+    void Update(const FrameContext& context, bool flushAfterUpdate = true);
+    // 외부 고정 tick에서 충돌·결과·이벤트 후 Flush하려면 false 지정.
+    void FixedUpdate(const FrameContext& context, bool flushAfterUpdate = true);
     bool SetParent(ObjectId child, ObjectId parent);
     DirectX::XMMATRIX World(ObjectId id) const;
     bool Active(ObjectId id) const;
 
 private:
+    void RunUpdate(const FrameContext& context, bool fixed, bool flushAfterUpdate);
     bool m_updating = false;
     std::vector<std::unique_ptr<Object>> m_objects;
 };

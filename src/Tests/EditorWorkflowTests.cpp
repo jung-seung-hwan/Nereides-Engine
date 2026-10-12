@@ -162,7 +162,7 @@ int RunEditorWorkflowTest()
             editor.Begin(scene, cameraId, player, camera, time, input, collision);
             time.Advance(1. / 60);
             if (editor.Playing())
-                scene.Update({input, time});
+                scene.FixedUpdate({input, time});
             editor.DrawDebug(scene, cameraId, camera, collision);
             auto render = CollectRenderFrame(scene, cameraId, camera, 1280.f / 720, 0);
             editor.ApplyView(render);

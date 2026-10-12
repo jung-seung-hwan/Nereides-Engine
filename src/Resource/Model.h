@@ -140,7 +140,7 @@ public:
     {
     }
 
-    void Update(Object&, Scene&, const FrameContext& frame) override
+    void FixedUpdate(Object&, Scene&, const FrameContext& frame) override
     {
         player.Advance(frame.time.combat.delta);
     }

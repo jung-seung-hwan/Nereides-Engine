@@ -4,7 +4,8 @@
 
 namespace nereides
 {
-// Call BeginFrame before pumping platform events. Content owns input buffering.
+// Call BeginFrame before pumping platform events. Content owns action/combo buffering.
+// 고정 tick까지의 원시 입력 보관은 Input이 담당한다.
 // MoveComponent.h에서 Held시 사용
 // Windows 입력 메세지 -> Win32Window 메시지 처리 -> Input에 W 상태 저장 -> MoveComponent가 Held('W') 조회
 class Input final
@@ -34,12 +35,18 @@ public:
         // 기존 상태비교
         // 지금 누름 입력이 들어왔고, 이전에는 누르지 않았다면 → 새로 누른 것
         if (down && !m_down[key])
+        {
             m_pressed[key] = true;
+            m_tickPressed[key] = true;
+        }
 
         // 기존 상태 비교
         // 지금 뗌 입력이 들어왔고, 이전에는 누르고 있었다면 → 새로 뗀 것
         if (!down && m_down[key])
+        {
             m_released[key] = true;
+            m_tickReleased[key] = true;
+        }
 
         m_down[key] = down;
     }
@@ -66,6 +73,7 @@ public:
             m_blocked[i] = m_blocked[i] || m_down[i];
 
         m_down.fill(false);
+        ClearPendingTick();
 
         BeginFrame();
     }
@@ -76,6 +84,8 @@ public:
         {
             m_mouseX += x;
             m_mouseY += y;
+            m_tickMouseX += x;
+            m_tickMouseY += y;
         }
     }
 
@@ -87,16 +97,45 @@ public:
             {
                 m_blocked[key] = m_blocked[key] || m_down[key];
                 m_down[key] = m_pressed[key] = m_released[key] = false;
+                m_tickPressed[key] = m_tickReleased[key] = false;
             }
 
         if (mouse)
+        {
             m_mouseX = m_mouseY = m_wheel = 0;
+            m_tickMouseX = m_tickMouseY = m_tickWheel = 0;
+        }
     }
 
     void AddWheel(int amount) noexcept
     {
         if (m_focused)
+        {
             m_wheel += amount;
+            m_tickWheel += amount;
+        }
+    }
+
+    // tick이 없는 프레임의 입력도 보관하며, 다음 tick에서 한 번만 전달한다.
+    // 같은 tick 이전의 반복 눌림은 하나의 bool로 합친다. 콤보 예약은 콘텐츠 책임이다.
+    Input ConsumeTick() noexcept
+    {
+        Input result = *this;
+        result.m_pressed = m_tickPressed;
+        result.m_released = m_tickReleased;
+        result.m_mouseX = m_tickMouseX;
+        result.m_mouseY = m_tickMouseY;
+        result.m_wheel = m_tickWheel;
+        result.ClearPendingTick();
+        ClearPendingTick();
+        return result;
+    }
+
+    void ClearPendingTick() noexcept
+    {
+        m_tickPressed.fill(false);
+        m_tickReleased.fill(false);
+        m_tickMouseX = m_tickMouseY = m_tickWheel = 0;
     }
 
     // 이동에는 Held(), 한 번 눌러 상태를 전환하는 기능에는 Pressed()
@@ -134,5 +173,7 @@ private:
     std::array<bool, 256> m_down{}, m_pressed{}, m_released{}, m_blocked{};
     bool m_focused = true;
     int m_mouseX = 0, m_mouseY = 0, m_wheel = 0;
+    std::array<bool, 256> m_tickPressed{}, m_tickReleased{};
+    int m_tickMouseX = 0, m_tickMouseY = 0, m_tickWheel = 0;
 };
 } // namespace nereides

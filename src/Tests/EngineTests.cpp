@@ -71,6 +71,116 @@ void TestInput()
 }
 
 
+class UpdateProbe final : public Component
+{
+public:
+    void Update(Object&, Scene&, const FrameContext& frame) override
+    {
+        ++frames;
+        frameSeconds += frame.time.real.delta;
+        framePresses += frame.input.Pressed('E');
+        Require(frame.time.combat.delta == 0 && frame.time.escape.delta == 0,
+                "frame callback cannot reuse fixed delta");
+    }
+
+    void FixedUpdate(Object&, Scene&, const FrameContext& frame) override
+    {
+        ++ticks;
+        combatSeconds += frame.time.combat.delta;
+        tickPresses += frame.input.Pressed('E');
+    }
+
+    unsigned frames = 0, ticks = 0, framePresses = 0, tickPresses = 0;
+    double frameSeconds = 0, combatSeconds = 0;
+};
+
+
+void TestFixedUpdate()
+{
+    for (unsigned fps : {30u, 60u, 144u})
+    {
+        FixedStep fixed;
+        Time time;
+        Input input;
+        Scene scene;
+        auto& probe = scene.Create("update cadence").Add<UpdateProbe>();
+        for (unsigned frame = 0; frame < fps; ++frame)
+        {
+            input.BeginFrame();
+            if (frame == 0)
+                input.SetKey('E', true);
+            time.AdvanceFrame(1.0 / fps);
+            const auto steps = fixed.Accumulate(1.0 / fps);
+            for (unsigned step = 0; step < steps; ++step)
+            {
+                const auto tickInput = input.ConsumeTick();
+                time.AdvanceTick(fixed.Step());
+                scene.FixedUpdate({tickInput, time});
+            }
+            const auto frameTime = time.FrameView();
+            scene.Update({input, frameTime});
+        }
+        Require(time.tick == 50 && time.frame == fps && Near(time.combat.elapsed, 1),
+                "fixed update independent of render rate");
+        Require(probe.frames == fps && probe.ticks == 50 && Near(probe.frameSeconds, 1) &&
+                    Near(probe.combatSeconds, 1) && probe.framePresses == 1 &&
+                    probe.tickPresses == 1,
+                "independent callbacks and input channels");
+        time.paused = true;
+        time.AdvanceFrame(.01);
+        const auto pausedFrame = time.FrameView();
+        scene.Update({input, pausedFrame});
+        Require(probe.frames == fps + 1 && probe.ticks == 50 && pausedFrame.presentation.delta == 0,
+                "paused frame callback without tick");
+    }
+    FixedStep fixed;
+    Require(fixed.Accumulate(.015) == 0 && fixed.Accumulate(.015) == 1 &&
+                fixed.Accumulate(.05) == 3,
+            "fixed update remainder");
+    Require(fixed.Accumulate(1) == FixedStep::MaxStepsPerFrame &&
+                Near(fixed.DroppedSeconds(), .84) && fixed.Accumulate(.001) == 0,
+            "catch up limit discards whole step debt");
+    fixed.Reset();
+    Require(fixed.Accumulate(.019) == 0, "resume clears accumulated time");
+    Require(fixed.Accumulate(-1) == 0 &&
+                fixed.Accumulate(std::numeric_limits<double>::infinity()) == 0,
+            "invalid fixed frame delta");
+    FixedStep sixty(60);
+    Require(sixty.Accumulate(1.0 / 60) == 1 && Near(sixty.Step(), 1.0 / 60),
+            "configurable fixed frequency");
+
+    Input input;
+    input.SetKey('W', true);
+    input.AddMouseDelta(3, 4);
+    input.AddWheel(120);
+    input.BeginFrame(); // No tick ran in the previous render frame.
+    input.AddMouseDelta(2, -1);
+    auto first = input.ConsumeTick();
+    auto second = input.ConsumeTick();
+    Require(first.Pressed('W') && first.Held('W') && first.MouseX() == 5 && first.MouseY() == 3 &&
+                first.Wheel() == 120,
+            "pending input survives render frames");
+    Require(!second.Pressed('W') && second.Held('W') && second.MouseX() == 0 && second.Wheel() == 0,
+            "catch up must not repeat input edges");
+    input.SetKey('E', true);
+    input.SetKey('E', false);
+    input.BeginFrame();
+    auto tap = input.ConsumeTick();
+    Require(tap.Pressed('E') && tap.Released('E') && !tap.Held('E'),
+            "quick tap survives until next tick");
+    input.SetKey('Q', true);
+    input.AddMouseDelta(1, 1);
+    input.Capture(true, true);
+    auto captured = input.ConsumeTick();
+    Require(!captured.Pressed('Q') && !captured.Held('Q') && captured.MouseX() == 0,
+            "editor capture clears pending tick input");
+    input.SetKey('A', true);
+    input.SetFocus(false);
+    input.SetFocus(true);
+    Require(!input.ConsumeTick().Pressed('A'), "focus clears pending tick input");
+}
+
+
 void TestTime()
 {
     Time time;
@@ -105,6 +215,11 @@ public:
         action(object, scene);
     }
 
+    void FixedUpdate(Object& object, Scene& scene, const FrameContext&) override
+    {
+        action(object, scene);
+    }
+
     std::function<void(Object&, Scene&)> action;
 };
 class PhaseRecorder final : public Component
@@ -132,6 +247,33 @@ private:
 
 void TestScene()
 {
+    {
+        Scene deferred;
+        Input input;
+        Time time;
+        Events events;
+        auto lifetime = std::make_shared<int>(0);
+        std::weak_ptr<int> weak = lifetime;
+        auto& object = deferred.Create("deferred destruction");
+        const auto id = object.Id();
+        object.Add<TestAction>(
+            [lifetime](Object& self, Scene& scene) { scene.Destroy(self.Id()); });
+        lifetime.reset();
+        deferred.FixedUpdate({input, time}, false);
+        Require(!deferred.Find(id) && !weak.expired(), "destroy hides before final flush");
+        bool dispatched = false;
+        events.Subscribe(0, "result", [&](const Event&) {
+            Require(!weak.expired(), "events run before destruction");
+            dispatched = true;
+        });
+        Event result;
+        result.name = "result";
+        result.epoch = events.Epoch();
+        events.Publish(result);
+        events.Dispatch(deferred);
+        deferred.Flush();
+        Require(dispatched && weak.expired(), "tick flush releases destroyed components");
+    }
     Scene scene;
     Input input;
     Time time;
@@ -608,6 +750,7 @@ int RunEngineTests()
     {
         TestInput();
         TestTime();
+        TestFixedUpdate();
         TestScene();
         TestRenderInput();
         TestAnimation();

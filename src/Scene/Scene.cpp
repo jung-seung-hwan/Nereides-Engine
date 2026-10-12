@@ -118,9 +118,21 @@ bool Scene::Active(ObjectId id) const
 
 
 // Scene 업데이트 처리
-void Scene::Update(const FrameContext& context)
+void Scene::Update(const FrameContext& context, bool flushAfterUpdate)
 {
-    // 중복 진입 불가 : Scene::Update() 호출 중에 다시 호출되면 예외 발생
+    RunUpdate(context, false, flushAfterUpdate);
+}
+
+
+void Scene::FixedUpdate(const FrameContext& context, bool flushAfterUpdate)
+{
+    RunUpdate(context, true, flushAfterUpdate);
+}
+
+
+void Scene::RunUpdate(const FrameContext& context, bool fixed, bool flushAfterUpdate)
+{
+    // Update/FixedUpdate 실행 중 어느 갱신 경로로든 재진입하면 예외 발생
     if (m_updating)
         throw std::logic_error("Recursive Scene::Update");
 
@@ -128,7 +140,7 @@ void Scene::Update(const FrameContext& context)
 
     try
     {
-        // Snapshot at the frame boundary: new objects/components begin next frame.
+        // Each Update/FixedUpdate call takes its own snapshot.
         // Scene의 모든 객체를 수집 후 업데이트 처리
         // -> 추후 에디터, 코드 우선순위 기반으로 객체 수집 및 업데이트 순서 조정 필요
         std::vector<std::pair<ObjectId, std::vector<Component*>>> batch;
@@ -140,7 +152,7 @@ void Scene::Update(const FrameContext& context)
             for (const auto& component : Find(id)->m_components)
                 components.push_back(component.get());
 
-            // Update () 호출 시점에 새로 생성된 객체/컴포넌트는 다음 프레임부터 업데이트 진행
+            // 갱신 중 추가된 대상은 이 목록에서 제외. 이후 별도 갱신 호출에서는 포함 가능.
             batch.emplace_back(id, std::move(components));
         }
 
@@ -160,7 +172,12 @@ void Scene::Update(const FrameContext& context)
                     if (!Active(id))
                         break;
                     if (component->enabled && !component->m_removed && component->Phase() == phase)
-                        component->Update(*object, *this, context);
+                    {
+                        if (fixed)
+                            component->FixedUpdate(*object, *this, context);
+                        else
+                            component->Update(*object, *this, context);
+                    }
                 }
             }
     }
@@ -173,7 +190,8 @@ void Scene::Update(const FrameContext& context)
     }
 
     m_updating = false;
-    Flush();
+    if (flushAfterUpdate)
+        Flush();
 }
 
 

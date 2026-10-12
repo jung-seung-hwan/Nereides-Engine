@@ -6,6 +6,7 @@
 #include "Scene/Scene.h"
 #include "Collision/Collision.h"
 #include "Editor/Editor.h"
+#include "Core/Events.h"
 
 namespace nereides
 {
@@ -40,5 +41,7 @@ private:
     ObjectId m_camera = 0;
     Camera m_cameraData;
     CollisionWorld m_collision;
+    Events m_events;
+    void ResolveContacts(const std::vector<Contact>& contacts);
 };
 } // namespace nereides
