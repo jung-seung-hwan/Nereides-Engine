@@ -1,11 +1,12 @@
 #include "Data/SceneIO.h"
 #include "Collision/Collision.h"
-#include "Sandbox/MoveComponent.h"
+#include "Reflection/ComponentRegistry.h"
 #include <nlohmann/json.hpp>
 #include <Windows.h>
 #include <fstream>
 #include <cmath>
 #include <stdexcept>
+#include <limits>
 
 namespace nereides
 {
@@ -38,6 +39,62 @@ double Number(const Json& j, double minimum, double maximum)
         throw std::runtime_error("Numeric setting out of range");
 
     return value;
+}
+Json EncodeProperties(const Component& component, const ComponentType& type)
+{
+    Json data = {{"type", type.name}};
+    for (const auto& property : type.properties)
+    {
+        const auto value = property.read(component);
+        property.Validate(value);
+        data[property.name] = std::visit(
+            [](const auto& v) -> Json {
+                if constexpr (std::is_same_v<std::decay_t<decltype(v)>, DirectX::XMFLOAT3>)
+                    return Vector(v);
+                else
+                    return v;
+            },
+            value);
+    }
+    return data;
+}
+
+std::unique_ptr<Component> DecodeProperties(const Json& data, const ComponentType& type)
+{
+    auto component = type.create();
+    for (const auto& property : type.properties)
+    {
+        // 새 필드가 추가되기 전의 씬은 등록된 기본 설정을 사용한다.
+        PropertyValue value = property.defaultValue;
+        if (data.contains(property.name))
+        {
+            const auto& field = data.at(property.name);
+            value = std::visit(
+                [&](const auto& defaultValue) -> PropertyValue {
+                    using V = std::decay_t<decltype(defaultValue)>;
+                    if constexpr (std::is_same_v<V, DirectX::XMFLOAT3>)
+                        return Vector(field);
+                    else if constexpr (std::is_same_v<V, bool>)
+                        return field.get<bool>();
+                    else if constexpr (std::is_same_v<V, int>)
+                    {
+                        if (!field.is_number_integer())
+                            throw std::runtime_error("Expected integer property: " + property.name);
+                        return int(Number(field, std::numeric_limits<int>::min(),
+                                          std::numeric_limits<int>::max()));
+                    }
+                    else
+                    {
+                        if (!field.is_number())
+                            throw std::runtime_error("Expected numeric property: " + property.name);
+                        return float(Number(field, property.minimum, property.maximum));
+                    }
+                },
+                property.defaultValue);
+        }
+        property.Set(*component, value);
+    }
+    return component;
 }
 } // namespace
 
@@ -102,8 +159,6 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
                     {"type", "model"},
                     {"path", error ? model->model->path : std::string(utf8.begin(), utf8.end())}};
             }
-            else if (const auto* move = dynamic_cast<const MoveComponent*>(component))
-                data = {{"type", "move"}, {"speed", move->speed}};
             else if (const auto* collider = dynamic_cast<const Collider*>(component))
                 data = {{"type", "collider"},
                         {"shape", collider->shape == Shape::Box ? "box" : "sphere"},
@@ -128,11 +183,11 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
                         {"value", p.value}, {"min", p.minimum}, {"max", p.maximum}};
                 }
             }
+            else if (const auto* type = ComponentTypes().Find(*component))
+                data = EncodeProperties(*component, *type);
             else
                 throw std::runtime_error("Component requires explicit serialization registration");
 
-            if (data["type"] == "move")
-                Number(data["speed"], 0, 1000);
             if (data["type"] == "cube")
                 for (const auto& channel : data["tint"])
                     Number(channel, 0, 1);
@@ -275,12 +330,6 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
                 component = &object.Add<ModelComponent>(cache.Load(std::filesystem::path(
                     std::u8string(reinterpret_cast<const char8_t*>(path.c_str())))));
             }
-            else if (type == "move")
-            {
-                auto& move = object.Add<MoveComponent>();
-                move.speed = float(Number(data.at("speed"), 0, 1000));
-                component = &move;
-            }
             else if (type == "collider")
             {
                 auto& collider = object.Add<Collider>();
@@ -314,6 +363,8 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
                                                maximum};
                 }
             }
+            else if (const auto* registered = ComponentTypes().Find(type))
+                component = &object.AddComponent(DecodeProperties(data, *registered));
             else
                 throw std::runtime_error("Unknown component type: " + type);
 

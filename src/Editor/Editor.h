@@ -9,6 +9,7 @@
 #include "Editor/Console.h"
 #include <Windows.h>
 #include <d3d11.h>
+#include <map>
 struct ImDrawList;
 
 namespace nereides
@@ -61,6 +62,7 @@ private:
     float m_assetsHeight = 260;
     std::uint64_t m_errorLog = 0;
     DirectX::XMFLOAT2 m_consoleButton{}, m_viewLogButton{}, m_splitter{};
+    std::map<std::string, DirectX::XMFLOAT2> m_componentControls;
     void Focus(const Scene&, ObjectId);
     void Import(Scene&, const std::filesystem::path&, const DirectX::XMFLOAT3* position = nullptr);
     ObjectId m_selected = 0;

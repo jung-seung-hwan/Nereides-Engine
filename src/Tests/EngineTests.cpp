@@ -16,6 +16,9 @@
 #include "Editor/EditHistory.h"
 #include "Editor/EditorGeometry.h"
 #include "Editor/Console.h"
+#include "Reflection/ComponentRegistry.h"
+#include "Sandbox/MoveComponent.h"
+#include <nlohmann/json.hpp>
 #include <fstream>
 #include <functional>
 #include <cmath>
@@ -748,6 +751,104 @@ void TestCollision()
 }
 
 
+class ReflectedProbe final : public Component
+{
+public:
+    float strength = 2;
+    int count = 3;
+    bool repeat = true;
+    DirectX::XMFLOAT3 offset{1, 2, 3};
+    int starts = 0; // 등록하지 않은 런타임 상태
+    void Start(Object&, Scene&) override
+    {
+        ++starts;
+    }
+};
+
+void TestReflection()
+{
+    auto rejects = [](auto action) {
+        try
+        {
+            action();
+        }
+        catch (const std::exception&)
+        {
+            return true;
+        }
+        return false;
+    };
+    auto& registry = ComponentTypes();
+    auto description = DescribeComponent<ReflectedProbe>(
+        "test-probe", "Test probe",
+        {Property("strength", "Strength", &ReflectedProbe::strength, 0, 10),
+         Property("count", "Count", &ReflectedProbe::count, 0, 10),
+         Property("repeat", "Repeat", &ReflectedProbe::repeat),
+         Property("offset", "Offset", &ReflectedProbe::offset, -10, 10)});
+    registry.Register(description);
+    Require(rejects([&] { registry.Register(description); }), "duplicate registration rejected");
+    description.name = "other-probe";
+    Require(rejects([&] { registry.Register(description); }), "duplicate C++ type rejected");
+    ComponentRegistry invalid;
+    description.properties[0].name = "enabled";
+    Require(rejects([&] { invalid.Register(description); }), "reserved field rejected");
+
+    Scene scene;
+    ModelCache cache;
+    const auto camera = scene.Create("camera").Id();
+    auto& object = scene.Create("player");
+    auto& probe = dynamic_cast<ReflectedProbe&>(registry.Add(object, "test-probe"));
+    const auto* type = registry.Find(probe);
+    type->properties[0].Set(probe, 7.5f);
+    type->properties[1].Set(probe, 8);
+    type->properties[2].Set(probe, false);
+    type->properties[3].Set(probe, DirectX::XMFLOAT3{-2, 4, 6});
+    probe.starts = 99;
+    auto& move = dynamic_cast<MoveComponent&>(registry.Add(object, "move"));
+    move.speed = 6.5f;
+    move.SetEnabled(false);
+    Require(rejects([&] { registry.Add(object, "move"); }), "duplicate add rejected");
+    Require(rejects([&] { registry.Add(object, "unknown"); }), "unknown add rejected");
+    Require(rejects([&] { type->properties[0].Set(probe, -1.f); }) && Near(probe.strength, 7.5),
+            "invalid property edit is non-mutating");
+    Require(rejects([&] { type->properties[0].Set(probe, true); }), "wrong property type rejected");
+    auto encoded = SceneIO::Encode(scene, camera, object.Id());
+    auto loaded = SceneIO::Decode(encoded, cache);
+    auto* restored = loaded.scene.Find(loaded.player)->Get<ReflectedProbe>();
+    Require(restored && Near(restored->strength, 7.5) && restored->count == 8 &&
+                !restored->repeat && Near(restored->offset.z, 6) && restored->starts == 0,
+            "registered fields roundtrip without runtime state");
+    Require(!loaded.scene.Find(loaded.player)->Get<MoveComponent>()->Enabled() &&
+                Near(loaded.scene.Find(loaded.player)->Get<MoveComponent>()->speed, 6.5),
+            "legacy move format and enabled flag roundtrip");
+    loaded.scene.BeginPlay();
+    Require(restored->starts == 1, "deserialization precedes lifecycle initialization");
+    auto file = nlohmann::json::parse(encoded);
+    auto& fields = file["objects"][1]["components"][0];
+    fields.erase("strength");
+    loaded = SceneIO::Decode(file.dump(), cache);
+    Require(Near(loaded.scene.Find(loaded.player)->Get<ReflectedProbe>()->strength, 2),
+            "missing new field restores registered default");
+    fields["strength"] = 11;
+    Require(rejects([&] { SceneIO::Decode(file.dump(), cache); }), "out of range load rejected");
+    fields["strength"] = 2;
+    fields["count"] = 2.5;
+    Require(rejects([&] { SceneIO::Decode(file.dump(), cache); }), "fractional integer rejected");
+    fields["count"] = 4294967297ULL;
+    Require(rejects([&] { SceneIO::Decode(file.dump(), cache); }), "integer overflow rejected");
+    fields["count"] = 2;
+    fields["repeat"] = "true";
+    Require(rejects([&] { SceneIO::Decode(file.dump(), cache); }), "wrong bool type rejected");
+    probe.strength = std::numeric_limits<float>::infinity();
+    Require(rejects([&] { SceneIO::Encode(scene, camera, object.Id()); }),
+            "nonfinite save rejected");
+    object.Remove(move);
+    scene.Flush();
+    Require(!object.Get<MoveComponent>(), "registered component instance removed");
+    registry.Add(object, "move");
+    Require(object.Get<MoveComponent>(), "registered component can be added again");
+}
+
 void TestSceneIO()
 {
     Scene scene;
@@ -1015,6 +1116,7 @@ int RunEngineTests()
         TestModelCache();
         TestCollision();
         TestSceneIO();
+        TestReflection();
         TestEditorHistory();
         TestConsoleRecords();
         TestTransitionsAndEvents();

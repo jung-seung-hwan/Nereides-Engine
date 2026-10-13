@@ -98,6 +98,7 @@
     <ClCompile Include="src\Presentation\Transition.cpp" />
     <ClCompile Include="src\Resource\Model.cpp" />
     <ClCompile Include="src\Scene\Scene.cpp" />
+    <ClCompile Include="src\Reflection\ComponentRegistry.cpp" />
     <ClCompile Include="src\Tests\EngineTests.cpp" />
     <ClCompile Include="src\Tests\EditorWorkflowTests.cpp" />
   </ItemGroup>
@@ -125,6 +126,7 @@
     <ClInclude Include="src\Resource\Model.h" />
     <ClInclude Include="src\Sandbox\MoveComponent.h" />
     <ClInclude Include="src\Scene\Scene.h" />
+    <ClInclude Include="src\Reflection\ComponentRegistry.h" />
     <ClInclude Include="src\Tests\EngineTests.h" />
   </ItemGroup>
   <Import Project="Dependencies.props" />

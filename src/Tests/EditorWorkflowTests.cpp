@@ -2,6 +2,7 @@
 #include "Editor/Editor.h"
 #include "Platform/Win32Window.h"
 #include "Core/Log.h"
+#include "Sandbox/MoveComponent.h"
 #include <imgui.h>
 #include <fstream>
 #include <cmath>
@@ -10,6 +11,15 @@ namespace nereides
 {
 struct EditorTestAccess
 {
+    static void Select(Editor& editor, ObjectId object)
+    {
+        editor.m_selected = object;
+    }
+    static DirectX::XMFLOAT2 ComponentControl(const Editor& editor, const std::string& name)
+    {
+        return editor.m_componentControls.at(name);
+    }
+
     static void Prepare(Editor& editor, const std::filesystem::path& model)
     {
         strcpy_s(editor.m_scenePath, "logs/editor-workflow-scene.json");
@@ -418,6 +428,42 @@ int RunEditorWorkflowTest()
         frame();
         require(EditorTestAccess::Splitter(editor).y < divider.y - 20,
                 "Assets height resizes by dragging divider");
+        // 등록 정보로 만든 실제 위젯을 통해 추가·편집·저장·삭제를 검증한다.
+        EditorTestAccess::Select(editor, player);
+        frame();
+        clickPoint(EditorTestAccess::ComponentControl(editor, "add"));
+        clickPoint(EditorTestAccess::ComponentControl(editor, "add:move"));
+        require(scene.Find(player)->Get<MoveComponent>(), "UI adds registered component");
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        frame();
+        clickPoint(EditorTestAccess::ComponentControl(editor, "property:move:speed"));
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        frame();
+        io.AddInputCharactersUTF8("7.25");
+        frame();
+        key(ImGuiKey_Enter);
+        key(ImGuiKey_Escape);
+        require(std::abs(scene.Find(player)->Get<MoveComponent>()->speed - 7.25f) < .001f,
+                "UI edits reflected float");
+        clickPoint(EditorTestAccess::ComponentControl(editor, "enabled:move"));
+        require(!scene.Find(player)->Get<MoveComponent>()->Enabled(), "UI component enabled");
+        const auto reflected = SceneIO::Encode(scene, cameraId, player, camera);
+        shortcut(ImGuiKey_S);
+        loaded = SceneIO::Load("logs/editor-workflow-scene.json", cache);
+        require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player, loaded.cameraData) ==
+                    reflected,
+                "UI saves registered component properties");
+        renderer.RequestCapture("captures/editor-reflection.bmp");
+        frame();
+        clickPoint(EditorTestAccess::ComponentControl(editor, "remove:move"));
+        require(!scene.Find(player)->Get<MoveComponent>(), "UI removes registered component");
+        shortcut(ImGuiKey_Z);
+        require(SceneIO::Encode(scene, cameraId, player, camera) == reflected,
+                "UI undo restores registered component");
+        shortcut(ImGuiKey_Y);
+        require(!scene.Find(player)->Get<MoveComponent>(), "UI redo removes registered component");
+        shortcut(ImGuiKey_S);
+
         std::filesystem::remove(nested);
         std::filesystem::remove(folder);
 

@@ -1,6 +1,6 @@
 # 콘텐츠와 렌더 연결 안내
 
-2026-10-12 라이프 사이클 변경까지 반영한 공통 기반의 실제 API다. 단계별 구현 이유는 [로드맵](implementation-roadmap.md)을 읽는다. 이 문서의 임시 규격은 팀 통합에서 검증하며 원문에서 미정인 게임 수치를 확정하지 않는다.
+2026-10-13 라이프 사이클·컴포넌트 등록과 편집 변경까지 반영한 공통 기반의 실제 API다. [전체 구조 HTML](engine-architecture.html)에서 시스템 연결을 볼 수 있다. 단계별 구현 이유는 [로드맵](implementation-roadmap.md)을 읽는다. 이 문서의 임시 규격은 팀 통합에서 검증하며 원문에서 미정인 게임 수치를 확정하지 않는다.
 
 ## 객체와 프레임
 
@@ -24,7 +24,21 @@ Remove/Destroy는 예약이며 Flush에서 OnDisable(필요한 경우) → OnDes
 
 씬 소멸자와 이동 대입도 기존 대상의 정리를 보장한다. 실행 중인 씬을 이동 원본으로 사용하는 것은 금지한다. 정리 콜백에서 사용하는 Events 등 서비스는 Scene보다 오래 살아 있어야 한다. Application은 소멸자 본문에서 EndPlay를 먼저 호출한다. 이벤트 구독자는 OnEnable에서 Subscribe하고 OnDisable에서 Unsubscribe하는 방식으로 수명을 연결한다.
 
-리플렉션·범용 컴포넌트 등록·사용자 코드 직렬화는 별도 작업이다. JSON 형식은 변경하지 않았으며 실행 수명 플래그는 저장하지 않는다.
+실행 수명 플래그는 저장하지 않는다. 등록한 설정값은 아래의 명시적 리플렉션을 통해 편집·저장한다.
+
+## 컴포넌트 등록과 속성 편집
+
+`Reflection/ComponentRegistry.h`의 `DescribeComponent<T>`로 영구 타입 이름·표시 이름·생성 함수를 정의하고, `Property`에 멤버 포인터와 범위를 전달한다. `ComponentTypes().Register(...)`는 에디터 사용·씬 로드 전에 호출한다. 기본 생성 가능한 Component 파생형을 대상으로 하며 생성자는 설정값 준비만 수행한다. 등록 기본값 확인 과정에서도 인스턴스가 생성되므로 이벤트 구독 등 실행 작업은 라이프사이클에 둔다. 레지스트리는 실행 스레드에서 사용하며 병렬 등록은 지원하지 않는다.
+
+```cpp
+ComponentTypes().Register(DescribeComponent<MyComponent>("my-component", "My Component", {
+    Property("speed", "Speed", &MyComponent::speed, 0, 1000)
+}));
+```
+
+현재 공통 속성은 `float`, `int`, `bool`, `DirectX::XMFLOAT3`를 지원한다. 등록된 속성 모두 편집·저장 대상이며 포인터·구독 ID·공격 진행 상태는 등록하지 않는다. 에디터 Add Component 목록·Inspector와 SceneIO가 같은 메타데이터를 사용한다. 숫자 범위·유한성·자료형을 검사하며, 새 필드가 과거 파일에 없으면 등록 기본값을 적용한다. 타입/필드 저장 키를 바꿀 때는 별도 파일 마이그레이션이 필요하다.
+
+기본 등록은 `ComponentRegistry.cpp`의 MoveComponent(speed 0~1000)다. 에디터에서 추가·삭제·활성 설정·속도 편집·Undo/Redo·저장·복원할 수 있다. 등록 기반 추가는 같은 타입의 중복을 막는다. 기존 cube/model/collider/parameters는 전용 편집·직렬화 경로를 유지한다. 모델은 Assets에서 배치한다. 리소스 선택·열거형·객체 참조·배열·중첩 속성과 C++ 소스 편집/핫리로드는 미구현이다.
 
 ## 프레임 갱신과 고정 갱신
 
@@ -70,7 +84,7 @@ RenderFrame은 CPU 메시 공유 참조·월드/뷰/투영·기본색·스키닝
 
 편집 카메라는 Scene 객체가 아니며 저장되지 않는다. 에디터가 RenderFrame의 view/projection을 편집 뷰포트에 맞게 바꾼다. Play에서는 게임 카메라를 쓰고 Stop은 실행 직전 편집 상태를 복원한다. Scene 렌더 타깃의 크기는 창의 백버퍼와 별개다.
 
-SceneIO는 배치·구성만 저장한다. 새 콘텐츠 컴포넌트는 명시적 직렬화 분기를 추가하거나 별도 콘텐츠 설정 파일로 관리한다. Parameters의 최소/최대 범위는 콘텐츠에서 정의하고 Inspector는 그 범위를 따른다. 현재 전투 HP·Stagger·입력 예약을 씬 저장에 포함하지 않는다.
+SceneIO는 배치·구성만 저장한다. 새 콘텐츠 컴포넌트는 지원하는 설정값을 ComponentRegistry에 등록하면 공통 경로로 저장된다. 리소스·동적 구조처럼 공통 속성이 지원하지 않는 데이터는 전용 직렬화 또는 별도 콘텐츠 설정 파일이 필요하다. Parameters의 최소/최대 범위는 콘텐츠에서 정의하고 Inspector는 그 범위를 따른다. 현재 전투 HP·Stagger·입력 예약을 씬 저장에 포함하지 않는다.
 
 권장 재시작 순서는 입력/공격 중단 → Events::Reset → CollisionWorld::Reset → Transition::Reset → 이전 Scene 정리 → 새 객체와 구독 구성이다. 이전 epoch의 이벤트나 token의 완료 신호는 거부된다. 플레이어·보스 HP/게이지/쿨다운 초기값은 콘텐츠가 명시적으로 설정한다. 재시작을 1번 배로 연결하는 정책도 보스 콘텐츠가 소유한다.
 

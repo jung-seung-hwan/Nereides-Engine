@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <stdexcept>
 
 namespace nereides
 {
@@ -119,6 +120,37 @@ public:
         auto value = std::make_unique<T>(std::forward<Args>(args)...);
         auto& result = *value;
         m_components.push_back(std::move(value));
+        return result;
+    }
+
+    // 등록된 생성 함수가 만든 컴포넌트의 소유권을 객체로 옮긴다.
+    Component& AddComponent(std::unique_ptr<Component> component)
+    {
+        if (!component)
+            throw std::invalid_argument("Cannot add null component");
+        auto& result = *component;
+        m_components.push_back(std::move(component));
+        return result;
+    }
+
+    // 에디터는 실제 인스턴스를 지정해 삭제 예약한다.
+    void Remove(Component& component) noexcept
+    {
+        for (const auto& owned : m_components)
+            if (owned.get() == &component)
+            {
+                owned->SetEnabled(false);
+                owned->m_removed = true;
+                return;
+            }
+    }
+
+    std::vector<Component*> Components()
+    {
+        std::vector<Component*> result;
+        for (const auto& component : m_components)
+            if (!component->m_removed)
+                result.push_back(component.get());
         return result;
     }
 

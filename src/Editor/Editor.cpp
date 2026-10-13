@@ -1,6 +1,6 @@
 #include "Editor/Editor.h"
 #include "Editor/EditorGeometry.h"
-#include "Sandbox/MoveComponent.h"
+#include "Reflection/ComponentRegistry.h"
 #include "Core/Log.h"
 #include <imgui.h>
 #include <imgui_impl_win32.h>
@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <climits>
 #pragma comment(lib, "comdlg32.lib")
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -18,6 +19,40 @@ namespace nereides
 namespace
 {
 using namespace DirectX;
+// UI는 등록 정보만 읽는다. Reflection 계층은 ImGui에 의존하지 않는다.
+bool PropertyControl(const PropertyInfo& property, Component& component)
+{
+    auto value = property.read(component);
+    const bool changed = std::visit(
+        [&](auto& v) {
+            using V = std::decay_t<decltype(v)>;
+            const auto* label = property.label.c_str();
+            if constexpr (std::is_same_v<V, bool>)
+                return ImGui::Checkbox(label, &v);
+            else if constexpr (std::is_same_v<V, int>)
+            {
+                const int minimum =
+                    int(std::clamp(property.minimum, double(INT_MIN), double(INT_MAX)));
+                const int maximum =
+                    int(std::clamp(property.maximum, double(INT_MIN), double(INT_MAX)));
+                return ImGui::DragInt(label, &v, 1, minimum, maximum, "%d",
+                                      ImGuiSliderFlags_AlwaysClamp);
+            }
+            else if constexpr (std::is_same_v<V, DirectX::XMFLOAT3>)
+                return ImGui::DragFloat3(label, &v.x, .05f, float(property.minimum),
+                                         float(property.maximum), "%.3f",
+                                         ImGuiSliderFlags_AlwaysClamp);
+            else
+                return ImGui::DragFloat(label, &v, .1f, float(property.minimum),
+                                        float(property.maximum), "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp);
+        },
+        value);
+    if (changed)
+        property.Set(component, value);
+    return changed;
+}
+
 std::string Utf8(const std::filesystem::path& path)
 {
     const auto s = path.generic_u8string();
@@ -603,6 +638,11 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     ImGui::End();
 
     Panel("Inspector", {display.x - right, top}, {right, display.y - top});
+    m_componentControls.clear();
+    auto rememberControl = [&](const std::string& name) {
+        const auto a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        m_componentControls[name] = {(a.x + b.x) * .5f, (a.y + b.y) * .5f};
+    };
     ImGui::BeginDisabled(m_playing);
     if (auto* object = scene.Find(m_selected))
     {
@@ -669,9 +709,74 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
 
         if (auto* mesh = object->Get<MeshComponent>())
             m_dirty |= ImGui::ColorEdit4("Color", &mesh->tint.x);
-        if (auto* move = object->Get<MoveComponent>())
-            m_dirty |= ImGui::DragFloat("Move speed", &move->speed, .1f, 0, 1000, "%.2f",
-                                        ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SeparatorText("Components");
+        const bool chooseComponent = ImGui::Button("Add Component");
+        rememberControl("add");
+        if (chooseComponent)
+            ImGui::OpenPopup("ComponentTypes");
+        if (ImGui::BeginPopup("ComponentTypes"))
+        {
+            for (const auto& [typeName, type] : ComponentTypes().Types())
+            {
+                bool exists = false;
+                for (const auto* component : object->Components())
+                    exists |= ComponentTypes().Find(*component) == &type;
+                ImGui::BeginDisabled(exists);
+                if (ImGui::Selectable(type.label.c_str()))
+                    try
+                    {
+                        ComponentTypes().Add(*object, typeName);
+                        m_dirty = true;
+                    }
+                    catch (const std::exception& e)
+                    {
+                        report(e);
+                    }
+                rememberControl("add:" + typeName);
+                ImGui::EndDisabled();
+            }
+            ImGui::EndPopup();
+        }
+        for (auto* component : object->Components())
+        {
+            const auto* type = ComponentTypes().Find(*component);
+            if (!type)
+                continue; // 리소스와 동적 맵은 아래의 기존 전용 편집기를 사용한다.
+            ImGui::PushID(component);
+            if (ImGui::CollapsingHeader(type->label.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                bool active = component->Enabled();
+                if (ImGui::Checkbox("Component enabled", &active))
+                {
+                    component->SetEnabled(active);
+                    m_dirty = true;
+                }
+                rememberControl("enabled:" + type->name);
+                for (const auto& property : type->properties)
+                {
+                    ImGui::PushID(property.name.c_str());
+                    try
+                    {
+                        m_dirty |= PropertyControl(property, *component);
+                    }
+                    catch (const std::exception& e)
+                    {
+                        report(e);
+                    }
+                    rememberControl("property:" + type->name + ":" + property.name);
+                    ImGui::PopID();
+                }
+                if (ImGui::Button("Remove component"))
+                {
+                    object->Remove(*component);
+                    m_dirty = true;
+                }
+                rememberControl("remove:" + type->name);
+            }
+            ImGui::PopID();
+        }
+        if (!m_playing)
+            scene.Flush();
         if (auto* parameters = object->Get<Parameters>())
             for (auto& [parameterName, p] : parameters->values)
                 m_dirty |=
