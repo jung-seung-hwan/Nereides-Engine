@@ -12,6 +12,8 @@
 
 2026-10-12 보완: 아래는 단계 02 당시 기록이다. 현재 일반 실행은 50Hz tick이며 `FixedUpdate(context, false)` 뒤 충돌·결과·이벤트를 처리한 다음 Flush한다. 각 갱신 경로는 호출 시작 시 목록을 확보한다. FixedUpdate 중 생성된 대상의 Update는 같은 렌더 프레임에 실행될 수 있다.
 
+2026-10-12 라이프 사이클 보완: `BeginPlay`에서 Awake/OnEnable/Start, 삭제·Stop에서 OnDisable/OnDestroy를 호출한다. 편집 씬에는 게임 콜백을 실행하지 않는다. 현재 호출 순서와 API는 [연결 안내](../integration-contracts.md#실행-수명과-초기화-순서)를 따른다. 아래 초기 단계 기록의 직접 Update 예제는 이제 BeginPlay가 먼저 필요하다.
+
 ## 수명과 좌표 계약
 
 Destroy는 해당 객체와 자손을 즉시 조회/갱신 대상에서 제외한다. 실제 메모리는 갱신이 끝난 Flush에서 해제한다. 갱신 중 Clear도 같은 원칙을 따른다. Update에서 생성된 객체는 다음 프레임부터 실행한다. 컴포넌트 Remove도 비활성화 후 Flush에서 해제하며, 자기 자신을 지우는 동작이 안전해야 한다.

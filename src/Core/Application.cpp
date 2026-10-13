@@ -75,6 +75,9 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
             m_editor.StartPreview();
     }
 
+    if (!editorEnabled)
+        m_scene.BeginPlay();
+
     // 경과 시간 측정
     auto previous = std::chrono::steady_clock::now();
     int exitCode = 0;

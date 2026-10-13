@@ -126,6 +126,25 @@ struct EditorTestAccess
 };
 
 
+class EditorLifecycleProbe final : public Component
+{
+public:
+    EditorLifecycleProbe(int& starts, int& destroys) : starts(starts), destroys(destroys) {}
+    void Start(Object&, Scene&) override
+    {
+        ++starts;
+    }
+    void OnDestroy(Object&, Scene&) noexcept override
+    {
+        ++destroys;
+    }
+
+private:
+    int& starts;
+    int& destroys;
+};
+
+
 int RunEditorWorkflowTest()
 {
     try
@@ -149,6 +168,7 @@ int RunEditorWorkflowTest()
         require(editor.Initialize(window.Handle(), renderer), "workflow editor");
         EditorTestAccess::Prepare(editor, modelPath);
         renderer.SetOverlay([&] { editor.Render(); });
+        int starts = 0, destroys = 0;
         Scene scene;
         ObjectId cameraId = scene.Create("camera").Id(), player = scene.Create("player").Id();
         scene.Find(cameraId)->transform.position = {0, 1, -6};
@@ -289,13 +309,24 @@ int RunEditorWorkflowTest()
                     imported,
                 "saved authored scene matches imported scene");
         click(271, 42);
-        require(editor.Playing(), "UI play");
+        require(editor.Playing() && scene.Playing(), "UI play begins scene lifecycle");
+        scene.Find(player)->Add<EditorLifecycleProbe>(starts, destroys);
         scene.Find(player)->transform.position.x = 77;
         frame();
         click(300, 42);
-        require(!editor.Playing(), "UI stop");
+        require(!editor.Playing() && !scene.Playing(), "UI stop restores non-playing scene");
         require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
                 "Stop restores authored state after runtime changes");
+        require(starts == 1 && destroys == 1, "runtime component starts and tears down on UI stop");
+        click(271, 42);
+        require(editor.Playing(), "second play");
+        scene.Find(player)->Add<EditorLifecycleProbe>(starts, destroys);
+        frame();
+        click(300, 42);
+        require(!editor.Playing() && starts == 2 && destroys == 2,
+                "each Play session owns a fresh lifecycle");
+        require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
+                "repeated Stop preserves authored snapshot");
         auto clickPoint = [&](DirectX::XMFLOAT2 p) { click(p.x, p.y); };
 
         // Folder navigation, scoped search and explicit placement use the same real UI.

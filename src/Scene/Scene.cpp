@@ -87,17 +87,183 @@ void Scene::Clear()
 }
 
 
-// 실제 삭제 처리
-// Scene::Update() 호출 후, 안전한 시점에 호출 (Scene 갱신 이후)
+// 콜백 동안 모든 객체의 메모리를 유지한 뒤, 정리가 끝난 대상만 해제한다.
 void Scene::Flush()
 {
     if (m_updating)
         return;
+    m_updating = true;
+    bool pending;
+    do
+    {
+        pending = false;
+        const auto batch = Snapshot();
+        DisableInactive(batch);
+        for (const auto& [object, components] : batch)
+            for (auto* component : components)
+                if ((object->m_destroyed || component->m_removed) && !component->m_disposed)
+                {
+                    Dispose(*object, *component);
+                    pending = true;
+                }
+        // 정리 콜백이 앞서 방문한 객체를 삭제했을 수도 있으므로 다시 검사한다.
+    } while (pending);
 
     for (const auto& object : m_objects)
         std::erase_if(object->m_components,
-                      [](const auto& component) { return component->m_removed; });
+                      [](const auto& component) { return component->m_disposed; });
     std::erase_if(m_objects, [](const auto& object) { return object->m_destroyed; });
+    m_updating = false;
+    if (m_endRequested)
+        EndPlay();
+}
+
+
+Scene::~Scene()
+{
+    EndPlay();
+}
+
+
+Scene::Scene(Scene&& other)
+{
+    *this = std::move(other);
+}
+
+
+Scene& Scene::operator=(Scene&& other)
+{
+    if (this == &other)
+        return *this;
+    if (m_updating || other.m_updating || other.m_playing)
+        throw std::logic_error("Cannot move an executing Scene");
+    EndPlay();
+    m_objects = std::move(other.m_objects);
+    return *this;
+}
+
+
+Scene::Batch Scene::Snapshot() const
+{
+    Batch batch;
+    for (const auto& object : m_objects)
+    {
+        std::vector<Component*> components;
+        for (const auto& component : object->m_components)
+            components.push_back(component.get());
+        batch.emplace_back(object.get(), std::move(components));
+    }
+    return batch;
+}
+
+
+bool Scene::Runnable(const Object& object, const Component& component) const
+{
+    return m_playing && !object.m_destroyed && !component.m_removed && !component.m_disposed &&
+           component.Enabled() && Active(object.Id());
+}
+
+
+void Scene::DisableInactive(const Batch& batch) noexcept
+{
+    for (const auto& [object, components] : batch)
+        for (auto* component : components)
+            if (component->m_active && !Runnable(*object, *component))
+            {
+                component->m_active = false;
+                component->OnDisable(*object, *this);
+            }
+}
+
+
+void Scene::Dispose(Object& object, Component& component) noexcept
+{
+    // 플래그를 먼저 바꿔 콜백의 재삭제 요청에도 중복 호출하지 않는다.
+    if (component.m_disposed)
+        return;
+    component.m_disposed = true;
+    if (component.m_active)
+    {
+        component.m_active = false;
+        component.OnDisable(object, *this);
+    }
+    if (component.m_awake)
+        component.OnDestroy(object, *this);
+}
+
+
+void Scene::Initialize(const Batch& batch)
+{
+    // 비활성이어도 Awake는 수행한다. 여기서는 참조를 찾고 Start에서 사용한다.
+    for (const auto& [object, components] : batch)
+        for (auto* component : components)
+            if (m_playing && !object->m_destroyed && !component->m_removed && !component->m_awake)
+            {
+                component->m_awake = true;
+                component->Awake(*object, *this);
+            }
+
+    DisableInactive(batch);
+    for (const auto& [object, components] : batch)
+        for (auto* component : components)
+            if (Runnable(*object, *component) && component->m_awake && !component->m_active)
+            {
+                component->m_active = true;
+                component->OnEnable(*object, *this);
+            }
+
+    DisableInactive(batch);
+    for (const auto& [object, components] : batch)
+        for (auto* component : components)
+            if (Runnable(*object, *component) && component->m_active && !component->m_started)
+            {
+                component->m_started = true;
+                component->Start(*object, *this);
+            }
+}
+
+
+void Scene::BeginPlay()
+{
+    if (m_updating)
+        throw std::logic_error("Cannot begin play inside a Scene callback");
+    if (m_playing)
+        return;
+    m_playing = true;
+    m_updating = true;
+    try
+    {
+        Initialize(Snapshot());
+    }
+    catch (...)
+    {
+        m_updating = false;
+        EndPlay();
+        throw;
+    }
+    m_updating = false;
+    Flush();
+}
+
+
+void Scene::EndPlay() noexcept
+{
+    m_playing = false;
+    if (m_updating)
+    {
+        m_endRequested = true;
+        return;
+    }
+    m_updating = true;
+    // 전체 OnDisable 후 OnDestroy. 다른 객체의 메모리는 모든 콜백이 끝날 때까지 유지.
+    const auto batch = Snapshot();
+    DisableInactive(batch);
+    for (const auto& [object, components] : batch)
+        for (auto* component : components)
+            Dispose(*object, *component);
+    m_objects.clear();
+    m_updating = false;
+    m_endRequested = false;
 }
 
 
@@ -106,7 +272,7 @@ bool Scene::Active(ObjectId id) const
 {
     for (auto* object = Find(id); object; object = Find(object->Parent()))
     {
-        if (!object->enabled)
+        if (!object->Enabled())
             return false;
 
         if (!object->Parent())
@@ -136,61 +302,37 @@ void Scene::RunUpdate(const FrameContext& context, bool fixed, bool flushAfterUp
     if (m_updating)
         throw std::logic_error("Recursive Scene::Update");
 
+    if (!m_playing)
+        return; // 편집 씬에는 게임 콜백을 실행하지 않는다.
     m_updating = true;
-
     try
     {
-        // Each Update/FixedUpdate call takes its own snapshot.
-        // Scene의 모든 객체를 수집 후 업데이트 처리
-        // -> 추후 에디터, 코드 우선순위 기반으로 객체 수집 및 업데이트 순서 조정 필요
-        std::vector<std::pair<ObjectId, std::vector<Component*>>> batch;
-
-        for (auto id : Objects())
-        {
-            std::vector<Component*> components;
-
-            for (const auto& component : Find(id)->m_components)
-                components.push_back(component.get());
-
-            // 갱신 중 추가된 대상은 이 목록에서 제외. 이후 별도 갱신 호출에서는 포함 가능.
-            batch.emplace_back(id, std::move(components));
-        }
-
-        // 업데이트 실행 순서 : Logic -> Animation -> Late
-        // 개별 객체별로 다 진행되면 다음 Phase로 넘어가는것이 아닌 전체 객체에 대해 Phase별로 진행
+        // 이 경계 이후 추가된 객체·컴포넌트는 다음 갱신에서 초기화하고 실행한다.
+        const auto batch = Snapshot();
+        Initialize(batch);
         for (auto phase : {UpdatePhase::Logic, UpdatePhase::Animation, UpdatePhase::Late})
-            for (const auto& [id, components] : batch)
-            {
-                // 객체 유효, 활성 상태인지 검사
-                auto* object = Find(id);
-                if (!object || !Active(id))
-                    continue;
-
-                // 컴포넌트에 대해서도 유효, 활성 상태인지 검사 후 업데이트 진행
+            for (const auto& [object, components] : batch)
                 for (auto* component : components)
-                {
-                    if (!Active(id))
-                        break;
-                    if (component->enabled && !component->m_removed && component->Phase() == phase)
+                    if (Runnable(*object, *component) && component->m_active &&
+                        component->m_started && component->Phase() == phase)
                     {
                         if (fixed)
                             component->FixedUpdate(*object, *this, context);
                         else
                             component->Update(*object, *this, context);
                     }
-                }
-            }
+        DisableInactive(batch);
     }
-    // 오류 발생 즉시 남은 업데이트를 중단하고, 삭제 정리만 한 다음 오류를 호출자에게 전달
     catch (...)
     {
         m_updating = false;
-        Flush();
+        EndPlay();
         throw;
     }
-
     m_updating = false;
-    if (flushAfterUpdate)
+    if (m_endRequested)
+        EndPlay();
+    else if (flushAfterUpdate)
         Flush();
 }
 

@@ -21,6 +21,8 @@ class Application final
 public:
     ~Application()
     {
+        // 이벤트·충돌·렌더 서비스가 살아 있을 때 실행 객체의 정리 콜백부터 호출한다.
+        m_scene.EndPlay();
         // Also detach callbacks on early initialization/render failure before Editor is destroyed.
         m_window.SetMessageHandler({});
         m_window.SetCloseGuard({});

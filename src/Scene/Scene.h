@@ -48,6 +48,15 @@ class Component
 public:
     virtual ~Component() = default;
 
+    // 씬 구성·설정 복원 후 한 번. 같은 갱신 목록의 Awake를 모두 끝낸 뒤 Start한다.
+    virtual void Awake(Object&, Scene&) {}
+    virtual void OnEnable(Object&, Scene&) {}
+    virtual void Start(Object&, Scene&) {}
+
+    // 정리 콜백에서는 예외를 던지지 않는다. 메모리 해제 전 외부 등록을 정리한다.
+    virtual void OnDisable(Object&, Scene&) noexcept {}
+    virtual void OnDestroy(Object&, Scene&) noexcept {}
+
     // 렌더 프레임마다 호출. 시각적 연출은 time.presentation.delta를 사용한다.
     virtual void Update(Object&, Scene&, const FrameContext&) {}
 
@@ -59,14 +68,23 @@ public:
         return UpdatePhase::Logic;
     }
 
-    bool enabled = true;
+    bool Enabled() const noexcept
+    {
+        return m_enabled;
+    }
+    // 실행 대상에서는 즉시 제외. 활성 전환 콜백은 다음 안전한 갱신 경계에서 호출한다.
+    void SetEnabled(bool value) noexcept
+    {
+        m_enabled = value;
+    }
 
 private:
     friend class Object;
     friend class Scene;
 
     // 삭제 예약 여부. 실제 제거는 Scene::Flush()에서 수행
-    bool m_removed = false;
+    bool m_removed = false, m_enabled = true;
+    bool m_awake = false, m_started = false, m_active = false, m_disposed = false;
 };
 
 class Object final
@@ -121,7 +139,7 @@ public:
     {
         if (auto* value = Get<T>())
         {
-            value->enabled = false;
+            value->SetEnabled(false);
             value->m_removed = true;
         }
     }
@@ -138,13 +156,21 @@ public:
     }
 
     Transform transform;
-    bool enabled = true;
+    bool Enabled() const noexcept
+    {
+        return m_enabled;
+    }
+    // 실행 대상에서는 즉시 제외. 활성 전환 콜백은 다음 안전한 갱신 경계에서 호출한다.
+    void SetEnabled(bool value) noexcept
+    {
+        m_enabled = value;
+    }
 
 private:
     friend class Scene;
     ObjectId m_id, m_parent = 0;
     std::string m_name;
-    bool m_destroyed = false;
+    bool m_destroyed = false, m_enabled = true;
     std::vector<std::unique_ptr<Component>> m_components;
 };
 
@@ -152,6 +178,23 @@ private:
 class Scene final
 {
 public:
+    Scene() = default;
+    ~Scene();
+    Scene(const Scene&) = delete;
+    Scene& operator=(const Scene&) = delete;
+    // 로드한 편집 씬만 이동한다. 실행 중 씬 이동은 콜백의 Scene 참조를 깨므로 금지한다.
+    Scene(Scene&& other);
+    Scene& operator=(Scene&& other);
+
+    // BeginPlay 전에 객체·컴포넌트·설정·부모 관계 구성을 끝낸다.
+    void BeginPlay();
+    // 실행 객체를 정리한다. 에디터는 이후 별도로 편집 스냅샷을 복원한다.
+    void EndPlay() noexcept;
+    bool Playing() const noexcept
+    {
+        return m_playing;
+    }
+
     Object& Create(std::string name);
     Object* Find(ObjectId id) const noexcept;
     std::vector<ObjectId> Objects() const;
@@ -167,8 +210,14 @@ public:
     bool Active(ObjectId id) const;
 
 private:
+    using Batch = std::vector<std::pair<Object*, std::vector<Component*>>>;
+    Batch Snapshot() const;
+    bool Runnable(const Object&, const Component&) const;
+    void Initialize(const Batch&);
+    void DisableInactive(const Batch&) noexcept;
+    void Dispose(Object&, Component&) noexcept;
     void RunUpdate(const FrameContext& context, bool fixed, bool flushAfterUpdate);
-    bool m_updating = false;
+    bool m_updating = false, m_playing = false, m_endRequested = false;
     std::vector<std::unique_ptr<Object>> m_objects;
 };
 

@@ -17,10 +17,10 @@ RenderFrame CollectRenderFrame(const Scene& scene, ObjectId cameraObject, const 
     {
         const auto* object = scene.Find(id);
         if (scene.Active(id))
-            if (const auto* model = object->Get<ModelComponent>(); model && model->enabled)
+            if (const auto* model = object->Get<ModelComponent>(); model && model->Enabled())
                 AppendModelDraws(*model, scene.World(id), frame);
         const auto* mesh = object->Get<MeshComponent>();
-        if (!scene.Active(id) || !mesh || !mesh->enabled || !mesh->mesh)
+        if (!scene.Active(id) || !mesh || !mesh->Enabled() || !mesh->mesh)
             continue;
         DrawItem item;
         item.mesh = mesh->mesh;

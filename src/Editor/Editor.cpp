@@ -414,9 +414,20 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 commit();
                 m_playSnapshot = m_history.Current();
                 m_playSelection = selectionIndex();
-                m_playing = true;
                 time.Reset();
                 input.DiscardHeld();
+                try
+                {
+                    scene.BeginPlay();
+                    m_playing = scene.Playing();
+                    if (!m_playing)
+                        restore(SceneIO::Decode(m_playSnapshot, m_models), m_playSelection);
+                }
+                catch (...)
+                {
+                    restore(SceneIO::Decode(m_playSnapshot, m_models), m_playSelection);
+                    throw;
+                }
             }
             else
             {
@@ -603,7 +614,12 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             m_dirty = true;
         }
 
-        m_dirty |= ImGui::Checkbox("Enabled", &object->enabled);
+        bool enabled = object->Enabled();
+        if (ImGui::Checkbox("Enabled", &enabled))
+        {
+            object->SetEnabled(enabled);
+            m_dirty = true;
+        }
 
         ImGui::SeparatorText("Transform");
         m_dirty |= VectorControl("Position (meters)", object->transform.position, .02f);

@@ -104,6 +104,7 @@ void TestFixedUpdate()
         Input input;
         Scene scene;
         auto& probe = scene.Create("update cadence").Add<UpdateProbe>();
+        scene.BeginPlay();
         for (unsigned frame = 0; frame < fps; ++frame)
         {
             input.BeginFrame();
@@ -259,6 +260,7 @@ void TestScene()
         object.Add<TestAction>(
             [lifetime](Object& self, Scene& scene) { scene.Destroy(self.Id()); });
         lifetime.reset();
+        deferred.BeginPlay();
         deferred.FixedUpdate({input, time}, false);
         Require(!deferred.Find(id) && !weak.expired(), "destroy hides before final flush");
         bool dispatched = false;
@@ -286,12 +288,13 @@ void TestScene()
     DirectX::XMFLOAT4X4 world;
     DirectX::XMStoreFloat4x4(&world, scene.World(child));
     Require(Near(world._41, 12), "parent world transform");
-    scene.Find(parent)->enabled = false;
+    scene.Find(parent)->SetEnabled(false);
     Require(!scene.Active(child), "inactive parent");
-    scene.Find(parent)->enabled = true;
+    scene.Find(parent)->SetEnabled(true);
     int called = 0;
     scene.Find(parent)->Add<TestAction>([child](Object&, Scene& s) { s.Destroy(child); });
     scene.Find(child)->Add<TestAction>([&](Object&, Scene&) { ++called; });
+    scene.BeginPlay();
     scene.Update({input, time});
     Require(called == 0 && !scene.Find(child), "deleted peer must not update");
     scene.Clear();
@@ -338,6 +341,260 @@ void TestScene()
     Require(order == std::vector<UpdatePhase>{UpdatePhase::Logic, UpdatePhase::Animation,
                                               UpdatePhase::Late},
             "global update phases do not depend on object creation order");
+}
+
+
+// 실행 순서와 수명 검증용 컴포넌트. 로그는 Scene보다 오래 살아 있어야 한다.
+class LifecycleProbe final : public Component
+{
+public:
+    LifecycleProbe(std::vector<std::string>& calls, std::string label)
+        : calls(calls), label(std::move(label))
+    {
+    }
+
+    void Awake(Object& object, Scene& scene) override
+    {
+        Record("awake");
+        if (awake)
+            awake(object, scene);
+    }
+    void OnEnable(Object&, Scene&) override
+    {
+        Record("enable");
+    }
+    void Start(Object& object, Scene& scene) override
+    {
+        Record("start");
+        if (start)
+            start(object, scene);
+    }
+    void FixedUpdate(Object& object, Scene& scene, const FrameContext&) override
+    {
+        Record("fixed");
+        if (fixed)
+            fixed(object, scene);
+    }
+    void Update(Object&, Scene&, const FrameContext&) override
+    {
+        Record("update");
+    }
+    void OnDisable(Object&, Scene&) noexcept override
+    {
+        Record("disable");
+    }
+    void OnDestroy(Object& object, Scene& scene) noexcept override
+    {
+        Record("destroy");
+        if (destroy)
+            destroy(object, scene);
+    }
+
+    std::function<void(Object&, Scene&)> awake, start, fixed, destroy;
+
+private:
+    void Record(const char* event)
+    {
+        calls.push_back(label + ":" + event);
+    }
+    std::vector<std::string>& calls;
+    std::string label;
+};
+
+
+class SubscriptionProbe final : public Component
+{
+public:
+    SubscriptionProbe(Events& events, int& delivered) : events(events), delivered(delivered) {}
+    void OnEnable(Object& object, Scene&) override
+    {
+        subscription =
+            events.Subscribe(object.Id(), "lifecycle", [this](const Event&) { ++delivered; });
+    }
+    void OnDisable(Object&, Scene&) noexcept override
+    {
+        events.Unsubscribe(subscription);
+    }
+
+private:
+    Events& events;
+    int& delivered;
+    Events::Subscription subscription = 0;
+};
+
+
+void TestLifecycle()
+{
+    Input input;
+    Time time;
+    std::vector<std::string> calls;
+    Scene scene;
+    auto& first = scene.Create("first");
+    auto& a = first.Add<LifecycleProbe>(calls, "a");
+    auto& second = scene.Create("second");
+    second.Add<LifecycleProbe>(calls, "b");
+    a.awake = [&](Object&, Scene& current) {
+        Require(current.Find(second.Id())->Get<LifecycleProbe>() != nullptr,
+                "Awake can resolve components added later during scene construction");
+    };
+    scene.Update({input, time});
+    scene.FixedUpdate({input, time});
+    Require(calls.empty(), "edit scene never invokes game callbacks");
+    scene.BeginPlay();
+    Require(calls == std::vector<std::string>{"a:awake", "b:awake", "a:enable", "b:enable",
+                                              "a:start", "b:start"},
+            "all Awake calls precede enable and Start");
+    scene.BeginPlay();
+    Require(calls.size() == 6, "repeated BeginPlay does not repeat initialization");
+    calls.clear();
+    scene.Update({input, time}); // No fixed tick is necessary to start the frame path.
+    scene.FixedUpdate({input, time});
+    Require(calls == std::vector<std::string>{"a:update", "b:update", "a:fixed", "b:fixed"},
+            "Start precedes either update path");
+    calls.clear();
+    a.SetEnabled(false);
+    scene.Flush();
+    scene.Flush();
+    Require(calls == std::vector<std::string>{"a:disable"}, "disable occurs once at boundary");
+    a.SetEnabled(true);
+    scene.FixedUpdate({input, time});
+    Require(calls == std::vector<std::string>{"a:disable", "a:enable", "a:fixed", "b:fixed"},
+            "reenable never repeats Awake or Start");
+    calls.clear();
+    scene.EndPlay();
+    scene.EndPlay();
+    Require(calls == std::vector<std::string>{"a:disable", "b:disable", "a:destroy", "b:destroy"} &&
+                scene.Objects().empty(),
+            "stop disables all then destroys once");
+
+    calls.clear();
+    auto& parent = scene.Create("disabled parent");
+    const auto parentId = parent.Id();
+    parent.SetEnabled(false);
+    auto& child = scene.Create("child");
+    auto& dormant = child.Add<LifecycleProbe>(calls, "child");
+    scene.SetParent(child.Id(), parentId);
+    scene.BeginPlay();
+    scene.FixedUpdate({input, time});
+    Require(calls == std::vector<std::string>{"child:awake"},
+            "inactive child waits for first Start");
+    parent.SetEnabled(true);
+    scene.FixedUpdate({input, time});
+    Require(calls == std::vector<std::string>{"child:awake", "child:enable", "child:start",
+                                              "child:fixed"},
+            "parent activation starts child before its first update");
+    calls.clear();
+    dormant.fixed = [&](Object& self, Scene&) { self.Remove<LifecycleProbe>(); };
+    scene.FixedUpdate({input, time}, false);
+    Require(!child.Get<LifecycleProbe>() &&
+                calls == std::vector<std::string>{"child:fixed", "child:disable"},
+            "remove stops execution before deferred memory release");
+    scene.Flush();
+    Require(calls.back() == "child:destroy", "removed component receives OnDestroy at Flush");
+    scene.EndPlay();
+
+    calls.clear();
+    auto& spawner = scene.Create("spawner").Add<LifecycleProbe>(calls, "spawner");
+    spawner.fixed = [&](Object& self, Scene& current) {
+        self.Add<LifecycleProbe>(calls, "attached");
+        current.Create("spawned").Add<LifecycleProbe>(calls, "spawned");
+        self.Remove<LifecycleProbe>();
+    };
+    scene.BeginPlay();
+    calls.clear();
+    scene.FixedUpdate({input, time});
+    Require(calls ==
+                std::vector<std::string>{"spawner:fixed", "spawner:disable", "spawner:destroy"},
+            "new components and objects wait for next callback boundary");
+    calls.clear();
+    scene.Update({input, time});
+    Require(calls == std::vector<std::string>{"attached:awake", "spawned:awake", "attached:enable",
+                                              "spawned:enable", "attached:start", "spawned:start",
+                                              "attached:update", "spawned:update"},
+            "dynamic objects initialize as a batch before a same-frame Update");
+    scene.EndPlay();
+
+    calls.clear();
+    auto& failing = scene.Create("failing").Add<LifecycleProbe>(calls, "failure");
+    failing.start = [](Object&, Scene&) { throw std::runtime_error("test Start failure"); };
+    bool failed = false;
+    try
+    {
+        scene.BeginPlay();
+    }
+    catch (const std::runtime_error&)
+    {
+        failed = true;
+    }
+    Require(failed && !scene.Playing() && scene.Objects().empty() &&
+                calls == std::vector<std::string>{"failure:awake", "failure:enable",
+                                                  "failure:start", "failure:disable",
+                                                  "failure:destroy"},
+            "failed initialization cleans partial runtime before propagating error");
+
+    calls.clear();
+    auto& stop = scene.Create("stop in callback").Add<LifecycleProbe>(calls, "stop");
+    stop.fixed = [](Object& self, Scene& current) {
+        current.EndPlay();
+        Require(current.Find(self.Id()) == &self, "EndPlay defers memory release inside callback");
+    };
+    scene.BeginPlay();
+    calls.clear();
+    scene.FixedUpdate({input, time}, false);
+    Require(calls == std::vector<std::string>{"stop:fixed", "stop:disable", "stop:destroy"} &&
+                scene.Objects().empty(),
+            "callback stop safely completes after dispatch");
+
+    calls.clear();
+    scene.Create("early").Add<LifecycleProbe>(calls, "early");
+    const auto earlyId = scene.Objects().front();
+    auto& later = scene.Create("later").Add<LifecycleProbe>(calls, "later");
+    const auto laterId = scene.Objects().back();
+    later.destroy = [earlyId](Object&, Scene& current) { current.Destroy(earlyId); };
+    scene.BeginPlay();
+    calls.clear();
+    scene.Destroy(laterId);
+    scene.Flush();
+    Require(scene.Objects().empty() &&
+                std::count(calls.begin(), calls.end(), "early:destroy") == 1 &&
+                std::count(calls.begin(), calls.end(), "later:destroy") == 1,
+            "destruction callback can destroy an already visited peer without skipping cleanup");
+    scene.EndPlay();
+
+    {
+        Events events;
+        int delivered = 0;
+        Scene subscribed;
+        auto& listener = subscribed.Create("listener").Add<SubscriptionProbe>(events, delivered);
+        subscribed.BeginPlay();
+        Event event;
+        event.name = "lifecycle";
+        event.epoch = events.Epoch();
+        events.Publish(event);
+        events.Dispatch(subscribed);
+        Require(delivered == 1, "enabled subscription receives events");
+        listener.SetEnabled(false);
+        subscribed.Flush();
+        events.Publish(event);
+        events.Dispatch(subscribed);
+        Require(delivered == 1, "OnDisable unsubscribes before deletion");
+        listener.SetEnabled(true);
+        subscribed.Update({input, time});
+        events.Publish(event);
+        events.Dispatch(subscribed);
+        Require(delivered == 2, "reenable creates one subscription");
+        events.Publish(event);
+        subscribed.EndPlay();
+        events.Dispatch(subscribed);
+        Require(delivered == 2, "stop leaves no callback pointing at destroyed component");
+    }
+
+    calls.clear();
+    Scene edit;
+    edit.Create("uninitialized edit").Add<LifecycleProbe>(calls, "edit");
+    scene = std::move(edit);
+    scene.Clear();
+    Require(calls.empty(), "edit deletion has no runtime lifecycle callbacks");
 }
 
 
@@ -752,6 +1009,7 @@ int RunEngineTests()
         TestTime();
         TestFixedUpdate();
         TestScene();
+        TestLifecycle();
         TestRenderInput();
         TestAnimation();
         TestModelCache();
@@ -760,9 +1018,10 @@ int RunEngineTests()
         TestEditorHistory();
         TestConsoleRecords();
         TestTransitionsAndEvents();
-        Log::Write(LogLevel::Info,
-                   "Engine tests PASS: input, time, scene, render input, animation, model cache, "
-                   "collision, scene IO, transitions, events");
+        Log::Write(
+            LogLevel::Info,
+            "Engine tests PASS: input, time, scene, lifecycle, render input, animation, model cache, "
+            "collision, scene IO, transitions, events");
         return 0;
     }
     catch (const std::exception& error)

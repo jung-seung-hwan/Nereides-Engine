@@ -89,6 +89,8 @@ Release 검증 후 `./scripts/package.ps1`로 새 dist 폴더에 실행 파일·
 
 게임 계산은 기본 50Hz(0.02초), 화면 출력은 렌더 프레임마다 실행한다. `src/Core/Time.h`의 `FixedStep::DefaultHz`를 수정하면 기본 주기를 바꿀 수 있다. 한 프레임에 최대 8회 따라잡고 초과 시간은 버리며, 정지·전환에서 누적 시간과 이전 입력을 정리한다. 렌더 보간은 아직 없다.
 
+씬 구성 후 `BeginPlay()`에서 모든 `Awake` → 활성 컴포넌트 `OnEnable` → 최초 `Start`를 호출한다. Play 종료·삭제에는 `OnDisable/OnDestroy`로 정리하며, 편집 모드에는 게임 콜백을 실행하지 않는다. 활성 변경은 `SetEnabled()`를 사용한다. 초기화 순서·생성/삭제 경계는 [연결 안내](docs/integration-contracts.md#실행-수명과-초기화-순서)를 따른다.
+
 컴포넌트의 `FixedUpdate()`는 50Hz, `Update()`는 Play 중 프레임마다 한 번 호출한다. 기존 이동·전투 애니메이션은 `FixedUpdate()`에 있다. 프레임 연출은 `Update()`에서 presentation.delta를 사용한다.
 
 한 tick은 입력 소비 → FixedUpdate의 Logic/Animation/Late → 충돌 → 결과 처리 → 이벤트 전달 → 삭제 순서다. 결과 처리는 현재 충돌 로그 예제이며 실제 피해·파괴 우선순위는 콘텐츠에서 구현한다. 세부 시간·입력 계약은 [연결 안내](docs/integration-contracts.md)를 따른다.

@@ -71,7 +71,7 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
         Json entry = {{"id", ids.at(id)},
                       {"parent", ids.at(object.Parent())},
                       {"name", object.Name()},
-                      {"enabled", object.enabled},
+                      {"enabled", object.Enabled()},
                       {"position", Vector(t.position)},
                       {"rotation", Vector(t.rotation)},
                       {"scale", Vector(t.scale)},
@@ -147,7 +147,7 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
             if (!types.insert(data["type"].get<std::string>()).second)
                 throw std::runtime_error("Duplicate serializable component");
 
-            data["enabled"] = component->enabled;
+            data["enabled"] = component->Enabled();
             entry["components"].push_back(std::move(data));
         }
 
@@ -241,7 +241,7 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
 
         auto& object = result.scene.Create(entry.at("name").get<std::string>());
         remap[old] = object.Id();
-        object.enabled = entry.at("enabled").get<bool>();
+        object.SetEnabled(entry.at("enabled").get<bool>());
         object.transform.position = Vector(entry.at("position"));
         object.transform.rotation = Vector(entry.at("rotation"));
         object.transform.scale = Vector(entry.at("scale"));
@@ -317,7 +317,7 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
             else
                 throw std::runtime_error("Unknown component type: " + type);
 
-            component->enabled = data.at("enabled").get<bool>();
+            component->SetEnabled(data.at("enabled").get<bool>());
         }
     }
 

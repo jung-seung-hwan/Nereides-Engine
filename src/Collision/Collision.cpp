@@ -170,7 +170,7 @@ std::vector<CollisionShape> CollisionWorld::Collect(const Scene& scene) const
     for (auto id : scene.Objects())
     {
         const auto* collider = scene.Find(id)->Get<Collider>();
-        if (!scene.Active(id) || !collider || !collider->enabled)
+        if (!scene.Active(id) || !collider || !collider->Enabled())
             continue;
         CollisionShape shape;
         shape.object = id;
