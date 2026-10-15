@@ -20,14 +20,51 @@ namespace
 {
 using namespace DirectX;
 // UI는 등록 정보만 읽는다. Reflection 계층은 ImGui에 의존하지 않는다.
-bool PropertyControl(const PropertyInfo& property, Component& component)
+bool PropertyControl(const PropertyInfo& property, Component& component,
+                     const std::function<void(const std::string&)>& rememberChoice)
 {
     auto value = property.read(component);
+    // 긴 속성 이름도 좁은 Inspector에서 잘리지 않게 입력창 위에 표시한다.
+    if (!std::holds_alternative<bool>(value))
+    {
+        ImGui::TextUnformatted(property.label.c_str());
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+    }
+    if (!property.choices.empty())
+    {
+        bool changed = false;
+        const auto& current = std::get<std::string>(value);
+        if (ImGui::BeginCombo("##value", current.c_str()))
+        {
+            for (const auto& choice : property.choices)
+            {
+                if (ImGui::Selectable(choice.c_str(), current == choice))
+                {
+                    property.Set(component, choice);
+                    changed = true;
+                }
+                rememberChoice(choice);
+            }
+            ImGui::EndCombo();
+        }
+        return changed;
+    }
     const bool changed = std::visit(
         [&](auto& v) {
             using V = std::decay_t<decltype(v)>;
-            const auto* label = property.label.c_str();
-            if constexpr (std::is_same_v<V, bool>)
+            const auto* label = std::is_same_v<V, bool> ? property.label.c_str() : "##value";
+            if constexpr (std::is_same_v<V, std::string>)
+                return false; // 문자열 저장 키는 위의 열거형 선택기로 편집한다.
+            else if constexpr (std::is_same_v<V, unsigned>)
+            {
+                const unsigned minimum =
+                    unsigned(std::clamp(property.minimum, 0., double(UINT_MAX)));
+                const unsigned maximum =
+                    unsigned(std::clamp(property.maximum, 0., double(UINT_MAX)));
+                return ImGui::DragScalar(label, ImGuiDataType_U32, &v, 1, &minimum, &maximum, "%u",
+                                         ImGuiSliderFlags_AlwaysClamp);
+            }
+            else if constexpr (std::is_same_v<V, bool>)
                 return ImGui::Checkbox(label, &v);
             else if constexpr (std::is_same_v<V, int>)
             {
@@ -707,8 +744,6 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         }
 
 
-        if (auto* mesh = object->Get<MeshComponent>())
-            m_dirty |= ImGui::ColorEdit4("Color", &mesh->tint.x);
         ImGui::SeparatorText("Components");
         const bool chooseComponent = ImGui::Button("Add Component");
         rememberControl("add");
@@ -725,8 +760,20 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 if (ImGui::Selectable(type.label.c_str()))
                     try
                     {
-                        ComponentTypes().Add(*object, typeName);
-                        m_dirty = true;
+                        if (type.createFromFile)
+                        {
+                            const auto path = ChooseFile(m_window, false, true);
+                            if (!path.empty())
+                            {
+                                ComponentTypes().Add(*object, typeName, &m_models, path);
+                                m_dirty = true;
+                            }
+                        }
+                        else
+                        {
+                            ComponentTypes().Add(*object, typeName);
+                            m_dirty = true;
+                        }
                     }
                     catch (const std::exception& e)
                     {
@@ -741,10 +788,16 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         {
             const auto* type = ComponentTypes().Find(*component);
             if (!type)
-                continue; // 리소스와 동적 맵은 아래의 기존 전용 편집기를 사용한다.
-            ImGui::PushID(component);
-            if (ImGui::CollapsingHeader(type->label.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+                continue;
+            // 메모리 주소 재사용으로 다른 컴포넌트의 접힘 상태를 물려받지 않는다.
+            ImGui::PushID(std::to_string(object->Id()).c_str());
+            ImGui::PushID(type->name.c_str());
+            const bool open = ImGui::CollapsingHeader(
+                type->label.c_str(), type->name == "move" ? ImGuiTreeNodeFlags_DefaultOpen : 0);
+            rememberControl("header:" + type->name);
+            if (open)
             {
+                rememberControl("open:" + type->name);
                 bool active = component->Enabled();
                 if (ImGui::Checkbox("Component enabled", &active))
                 {
@@ -757,7 +810,11 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                     ImGui::PushID(property.name.c_str());
                     try
                     {
-                        m_dirty |= PropertyControl(property, *component);
+                        m_dirty |=
+                            PropertyControl(property, *component, [&](const std::string& choice) {
+                                rememberControl("choice:" + type->name + ":" + property.name + ":" +
+                                                choice);
+                            });
                     }
                     catch (const std::exception& e)
                     {
@@ -765,6 +822,70 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                     }
                     rememberControl("property:" + type->name + ":" + property.name);
                     ImGui::PopID();
+                }
+                if (auto* mesh = dynamic_cast<MeshComponent*>(component))
+                    m_dirty |= ImGui::ColorEdit4("Color", &mesh->tint.x);
+                if (auto* model = dynamic_cast<ModelComponent*>(component))
+                {
+                    ImGui::TextWrapped("%s", model->model->path.c_str());
+                    ImGui::Text("%zu parts / %zu clips", model->model->parts.size(),
+                                model->model->clips.size());
+                }
+                if (auto* parameters = dynamic_cast<Parameters*>(component))
+                {
+                    ImGui::InputText("New parameter", m_parameterName, sizeof(m_parameterName));
+                    rememberControl("parameter:name");
+                    if (ImGui::Button("Add parameter"))
+                    {
+                        if (!m_parameterName[0])
+                            m_status = "Enter a parameter name.";
+                        else if (parameters->values.contains(m_parameterName))
+                            m_status = "That parameter name already exists.";
+                        else
+                        {
+                            parameters->values.emplace(m_parameterName, NumericParameter{});
+                            m_dirty = true;
+                        }
+                    }
+                    rememberControl("parameter:add");
+                    for (auto it = parameters->values.begin(); it != parameters->values.end();)
+                    {
+                        ImGui::PushID(it->first.c_str());
+                        ImGui::TextUnformatted(it->first.c_str());
+                        auto edited = it->second;
+                        const double low = -1e9, high = 1e9;
+                        bool changed =
+                            ImGui::DragScalar("Minimum", ImGuiDataType_Double, &edited.minimum, .1f,
+                                              &low, &high, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                        changed |=
+                            ImGui::DragScalar("Maximum", ImGuiDataType_Double, &edited.maximum, .1f,
+                                              &low, &high, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                        if (edited.minimum <= edited.maximum)
+                        {
+                            edited.value = std::clamp(edited.value, edited.minimum, edited.maximum);
+                            changed |= ImGui::DragScalar(
+                                "Value", ImGuiDataType_Double, &edited.value, .1f, &edited.minimum,
+                                &edited.maximum, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                            rememberControl("parameter:value:" + it->first);
+                            if (changed && std::isfinite(edited.value) &&
+                                std::isfinite(edited.minimum) && std::isfinite(edited.maximum))
+                            {
+                                it->second = edited;
+                                m_dirty = true;
+                            }
+                        }
+                        else
+                            m_status = "Parameter minimum must not exceed maximum.";
+                        const bool remove = ImGui::Button("Remove parameter");
+                        ImGui::PopID();
+                        if (remove)
+                        {
+                            it = parameters->values.erase(it);
+                            m_dirty = true;
+                        }
+                        else
+                            ++it;
+                    }
                 }
                 if (ImGui::Button("Remove component"))
                 {
@@ -774,33 +895,10 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                 rememberControl("remove:" + type->name);
             }
             ImGui::PopID();
+            ImGui::PopID();
         }
         if (!m_playing)
             scene.Flush();
-        if (auto* parameters = object->Get<Parameters>())
-            for (auto& [parameterName, p] : parameters->values)
-                m_dirty |=
-                    ImGui::DragScalar(parameterName.c_str(), ImGuiDataType_Double, &p.value, .1f,
-                                      &p.minimum, &p.maximum, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        if (auto* collider = object->Get<Collider>();
-            collider && ImGui::CollapsingHeader("Collision"))
-        {
-            m_dirty |= ImGui::Checkbox("Trigger", &collider->trigger);
-            if (collider->shape == Shape::Sphere)
-                m_dirty |= ImGui::DragFloat("Radius", &collider->radius, .01f, 0, 10000, "%.3f",
-                                            ImGuiSliderFlags_AlwaysClamp);
-            else
-                m_dirty |= ImGui::DragFloat3("Half extents", &collider->halfExtents.x, .01f, 0,
-                                             10000, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-        }
-
-        if (auto* model = object->Get<ModelComponent>())
-        {
-            ImGui::SeparatorText("Model");
-            ImGui::TextWrapped("%s", model->model->path.c_str());
-            ImGui::Text("%zu parts / %zu clips", model->model->parts.size(),
-                        model->model->clips.size());
-        }
     }
     else
         ImGui::TextWrapped("Select an object in the Scene or Hierarchy.");

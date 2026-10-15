@@ -849,6 +849,92 @@ void TestReflection()
     Require(object.Get<MoveComponent>(), "registered component can be added again");
 }
 
+void TestCommonComponents()
+{
+    auto rejects = [](auto action) {
+        try
+        {
+            action();
+        }
+        catch (const std::exception&)
+        {
+            return true;
+        }
+        return false;
+    };
+    Scene scene;
+    ModelCache cache;
+    auto& registry = ComponentTypes();
+    const auto camera = scene.Create("camera").Id();
+    auto& object = scene.Create("common components");
+    auto& collider = dynamic_cast<Collider&>(registry.Add(object, "collider"));
+    auto& mesh = dynamic_cast<MeshComponent&>(registry.Add(object, "cube"));
+    auto& parameters = dynamic_cast<Parameters&>(registry.Add(object, "parameters"));
+    Require(mesh.mesh && mesh.mesh->builtinCube, "registered cube has real mesh");
+    mesh.tint = {.2f, .3f, .4f, 1};
+    parameters.values["duration"] = {2.5, 0, 10};
+    const auto* type = registry.Find(collider);
+    type->properties[0].Set(collider, std::string("box"));
+    type->properties[1].Set(collider, DirectX::XMFLOAT3{1, 2, 3});
+    type->properties[2].Set(collider, DirectX::XMFLOAT3{2, 3, 4});
+    type->properties[4].Set(collider, 0x80000000u);
+    type->properties[5].Set(collider, ~0u);
+    type->properties[6].Set(collider, true);
+    collider.attack = 123;
+    collider.SetEnabled(false);
+    Require(rejects([&] { type->properties[0].Set(collider, std::string("triangle")); }),
+            "enum edit rejects unknown shape");
+    for (const auto* key : {"cube", "collider", "parameters"})
+        Require(rejects([&] { registry.Add(object, key); }), "common duplicate rejected");
+    const auto encoded = SceneIO::Encode(scene, camera, object.Id());
+    auto file = nlohmann::json::parse(encoded);
+    auto& saved = file["objects"][1]["components"][0];
+    Require(saved["shape"] == "box" && saved["mask"] == 4294967295ULL && !saved.contains("attack"),
+            "legacy collider keys and full unsigned mask preserved without runtime attack");
+    auto loaded = SceneIO::Decode(encoded, cache);
+    auto* restored = loaded.scene.Find(loaded.player);
+    Require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player) == encoded &&
+                restored->Get<Collider>()->attack == 0 && !restored->Get<Collider>()->Enabled(),
+            "all common components roundtrip canonically");
+    for (const auto invalidMask :
+         {nlohmann::json(-1), nlohmann::json(4294967296ULL), nlohmann::json(1.5)})
+    {
+        saved["mask"] = invalidMask;
+        Require(rejects([&] { SceneIO::Decode(file.dump(), cache); }),
+                "invalid unsigned mask rejected");
+    }
+    saved["mask"] = 1;
+    saved["shape"] = "unknown";
+    Require(rejects([&] { SceneIO::Decode(file.dump(), cache); }), "invalid shape load rejected");
+    Require(rejects([&] { registry.Add(object, "model"); }) && !object.Get<ModelComponent>(),
+            "model requires resource before attaching");
+    const std::filesystem::path path = "logs/component-model.obj";
+    {
+        std::ofstream stream(path);
+        stream << "o Model\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+    }
+    Require(rejects([&] { registry.Add(object, "model", &cache, "logs/no-such-model.obj"); }) &&
+                !object.Get<ModelComponent>(),
+            "failed resource load preserves object");
+    registry.Add(object, "model", &cache, path);
+    Require(object.Get<ModelComponent>() && !object.Get<ModelComponent>()->model->parts.empty(),
+            "model factory attaches loaded resource to existing object");
+    Require(rejects([&] { registry.Add(object, "model", &cache, path); }),
+            "duplicate model rejected");
+    auto modelScene = SceneIO::Encode(scene, camera, object.Id());
+    loaded = SceneIO::Decode(modelScene, cache);
+    Require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player) == modelScene,
+            "model resource survives scene roundtrip");
+    object.Remove(*object.Get<ModelComponent>());
+    object.Remove(collider);
+    object.Remove(mesh);
+    object.Remove(parameters);
+    scene.Flush();
+    Require(object.Components().empty(), "all added components can be removed");
+    registry.Add(object, "collider");
+    std::filesystem::remove(path);
+}
+
 void TestSceneIO()
 {
     Scene scene;
@@ -1117,6 +1203,7 @@ int RunEngineTests()
         TestCollision();
         TestSceneIO();
         TestReflection();
+        TestCommonComponents();
         TestEditorHistory();
         TestConsoleRecords();
         TestTransitionsAndEvents();

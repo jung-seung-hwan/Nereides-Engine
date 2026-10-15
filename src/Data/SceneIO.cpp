@@ -74,6 +74,15 @@ std::unique_ptr<Component> DecodeProperties(const Json& data, const ComponentTyp
                     using V = std::decay_t<decltype(defaultValue)>;
                     if constexpr (std::is_same_v<V, DirectX::XMFLOAT3>)
                         return Vector(field);
+                    else if constexpr (std::is_same_v<V, std::string>)
+                        return field.get<std::string>();
+                    else if constexpr (std::is_same_v<V, unsigned>)
+                    {
+                        if (!field.is_number_integer())
+                            throw std::runtime_error("Expected unsigned property: " +
+                                                     property.name);
+                        return unsigned(Number(field, 0, std::numeric_limits<unsigned>::max()));
+                    }
                     else if constexpr (std::is_same_v<V, bool>)
                         return field.get<bool>();
                     else if constexpr (std::is_same_v<V, int>)
@@ -159,15 +168,6 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
                     {"type", "model"},
                     {"path", error ? model->model->path : std::string(utf8.begin(), utf8.end())}};
             }
-            else if (const auto* collider = dynamic_cast<const Collider*>(component))
-                data = {{"type", "collider"},
-                        {"shape", collider->shape == Shape::Box ? "box" : "sphere"},
-                        {"offset", Vector(collider->offset)},
-                        {"extents", Vector(collider->halfExtents)},
-                        {"radius", collider->radius},
-                        {"layer", collider->layer},
-                        {"mask", collider->mask},
-                        {"trigger", collider->trigger}};
             else if (const auto* parameters = dynamic_cast<const Parameters*>(component))
             {
                 data = {{"type", "parameters"}, {"values", Json::object()}};
@@ -191,13 +191,6 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
             if (data["type"] == "cube")
                 for (const auto& channel : data["tint"])
                     Number(channel, 0, 1);
-            if (data["type"] == "collider")
-            {
-                Number(data["radius"], 0, 10000);
-
-                for (const auto& extent : data["extents"])
-                    Number(extent, 0, 1e9);
-            }
 
             if (!types.insert(data["type"].get<std::string>()).second)
                 throw std::runtime_error("Duplicate serializable component");
@@ -329,26 +322,6 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
                 const auto path = data.at("path").get<std::string>();
                 component = &object.Add<ModelComponent>(cache.Load(std::filesystem::path(
                     std::u8string(reinterpret_cast<const char8_t*>(path.c_str())))));
-            }
-            else if (type == "collider")
-            {
-                auto& collider = object.Add<Collider>();
-                component = &collider;
-                const auto shape = data.at("shape").get<std::string>();
-                if (shape != "box" && shape != "sphere")
-                    throw std::runtime_error("Unknown collider shape");
-
-                collider.shape = shape == "box" ? Shape::Box : Shape::Sphere;
-                collider.offset = Vector(data.at("offset"));
-                collider.halfExtents = Vector(data.at("extents"));
-                if (collider.halfExtents.x < 0 || collider.halfExtents.y < 0 ||
-                    collider.halfExtents.z < 0)
-                    throw std::runtime_error("Negative collider extents");
-
-                collider.radius = float(Number(data.at("radius"), 0, 10000));
-                collider.layer = data.at("layer").get<unsigned>();
-                collider.mask = data.at("mask").get<unsigned>();
-                collider.trigger = data.at("trigger").get<bool>();
             }
             else if (type == "parameters")
             {

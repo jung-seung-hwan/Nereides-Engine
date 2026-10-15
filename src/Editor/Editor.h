@@ -73,5 +73,6 @@ private:
     std::string m_status = "Ready";
     char m_scenePath[512] = "data/scenes/sandbox.json";
     char m_clipPath[512] = "data/presentation/preview.json";
+    char m_parameterName[128] = "Parameter";
 };
 } // namespace nereides

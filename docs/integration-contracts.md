@@ -1,6 +1,6 @@
 # 콘텐츠와 렌더 연결 안내
 
-2026-10-13 라이프 사이클·컴포넌트 등록과 편집 변경까지 반영한 공통 기반의 실제 API다. [전체 구조 HTML](engine-architecture.html)에서 시스템 연결을 볼 수 있다. 단계별 구현 이유는 [로드맵](implementation-roadmap.md)을 읽는다. 이 문서의 임시 규격은 팀 통합에서 검증하며 원문에서 미정인 게임 수치를 확정하지 않는다.
+2026-10-15 라이프 사이클·컴포넌트 등록과 편집 변경까지 반영한 공통 기반의 실제 API다. [전체 구조 HTML](engine-architecture.html)에서 시스템 연결을 볼 수 있다. 단계별 구현 이유는 [로드맵](implementation-roadmap.md)을 읽는다. 이 문서의 임시 규격은 팀 통합에서 검증하며 원문에서 미정인 게임 수치를 확정하지 않는다.
 
 ## 객체와 프레임
 
@@ -36,9 +36,13 @@ ComponentTypes().Register(DescribeComponent<MyComponent>("my-component", "My Com
 }));
 ```
 
-현재 공통 속성은 `float`, `int`, `bool`, `DirectX::XMFLOAT3`를 지원한다. 등록된 속성 모두 편집·저장 대상이며 포인터·구독 ID·공격 진행 상태는 등록하지 않는다. 에디터 Add Component 목록·Inspector와 SceneIO가 같은 메타데이터를 사용한다. 숫자 범위·유한성·자료형을 검사하며, 새 필드가 과거 파일에 없으면 등록 기본값을 적용한다. 타입/필드 저장 키를 바꿀 때는 별도 파일 마이그레이션이 필요하다.
+현재 공통 속성은 `float`, `int`, `unsigned`, `bool`, `DirectX::XMFLOAT3`와 이름을 명시한 열거형을 지원한다. `EnumProperty`는 저장 키와 enum 값을 연결하며 JSON에는 안정적인 문자열 키를 기록한다. unsigned는 0~UINT_MAX 범위의 정수만 허용한다. 등록된 속성 모두 편집·저장 대상이며 포인터·구독 ID·공격 진행 상태는 등록하지 않는다. 에디터 Add Component 목록·Inspector와 SceneIO가 같은 메타데이터를 사용한다. 숫자 범위·유한성·자료형을 검사하며, 새 필드가 과거 파일에 없으면 등록 기본값을 적용한다. 타입/필드 저장 키를 바꿀 때는 별도 파일 마이그레이션이 필요하다.
 
-기본 등록은 `ComponentRegistry.cpp`의 MoveComponent(speed 0~1000)다. 에디터에서 추가·삭제·활성 설정·속도 편집·Undo/Redo·저장·복원할 수 있다. 등록 기반 추가는 같은 타입의 중복을 막는다. 기존 cube/model/collider/parameters는 전용 편집·직렬화 경로를 유지한다. 모델은 Assets에서 배치한다. 리소스 선택·열거형·객체 참조·배열·중첩 속성과 C++ 소스 편집/핫리로드는 미구현이다.
+기본 등록은 MoveComponent, Collider, MeshComponent(내장 Cube), ModelComponent, Parameters다. 모두 공통 추가 목록·활성 전환·삭제·Undo/Redo에 연결된다. Collider는 shape/offset/extents/radius/layer/mask/trigger를 공통 속성으로 편집·저장하며 attack은 런타임 값이므로 제외한다. 기존 version 1 JSON 키와 sphere/box 값은 유지한다. Mesh의 색상, Parameters의 동적 이름·값·최소/최대는 전용 편집기를 공통 컴포넌트 패널 내부에서 사용한다. Parameters는 항목 추가·삭제와 중복 이름 검사를 제공한다.
+
+리소스가 필요한 타입은 `ComponentType::createFromFile`에 생성 함수를 등록한다. 에디터는 Model 선택 시 파일 선택창을 열고 `ComponentTypes().Add(object, "model", &cache, path)`로 파일을 로드한 뒤 기존 객체에 부착한다. 취소나 실패는 객체를 변경하지 않는다. 파일 기반 팩터리는 빈 모델 샘플을 생성하지 않으며 현재 공통 Property 목록 없이 전용 설정 UI를 사용한다. cube/model/parameters의 SceneIO 전용 직렬화는 유지한다. 모델은 Assets에서 새 객체로 배치하는 기존 기능도 유지한다.
+
+문자열 일반 편집·객체 참조·범용 리소스 속성·배열·중첩 속성과 C++ 소스 편집/핫리로드는 미구현이다. Camera는 컴포넌트가 아니므로 추가 목록에 넣지 않는다.
 
 ## 프레임 갱신과 고정 갱신
 

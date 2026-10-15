@@ -4,6 +4,7 @@
 #include "Core/Log.h"
 #include "Sandbox/MoveComponent.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <fstream>
 #include <cmath>
 
@@ -18,6 +19,10 @@ struct EditorTestAccess
     static DirectX::XMFLOAT2 ComponentControl(const Editor& editor, const std::string& name)
     {
         return editor.m_componentControls.at(name);
+    }
+    static bool HasControl(const Editor& editor, const std::string& name)
+    {
+        return editor.m_componentControls.contains(name);
     }
 
     static void Prepare(Editor& editor, const std::filesystem::path& model)
@@ -463,6 +468,97 @@ int RunEditorWorkflowTest()
         shortcut(ImGuiKey_Y);
         require(!scene.Find(player)->Get<MoveComponent>(), "UI redo removes registered component");
         shortcut(ImGuiKey_S);
+
+        auto reveal = [&](const std::string& name) {
+            // 삭제로 내용 높이가 줄면 다음 프레임에 스크롤이 보정된다.
+            // 보정 전 위젯 좌표로 클릭하지 않도록 레이아웃을 먼저 확정한다.
+            frame();
+            frame();
+            auto* inspector = ImGui::FindWindowByName("Inspector");
+            for (int attempt = 0; attempt < 12; ++attempt)
+            {
+                if (EditorTestAccess::HasControl(editor, name))
+                {
+                    const auto point = EditorTestAccess::ComponentControl(editor, name);
+                    if (point.y >= 110 && point.y <= 650)
+                        return point;
+                    ImGui::SetScrollY(inspector, inspector->Scroll.y + point.y - 400);
+                }
+                else
+                    ImGui::SetScrollY(inspector, inspector->Scroll.y + 120);
+                frame();
+                frame();
+            }
+            renderer.RequestCapture("captures/component-control-failure.bmp");
+            frame();
+            throw std::runtime_error("Cannot reveal component control: " + name);
+        };
+        auto addComponent = [&](const std::string& name) {
+            clickPoint(reveal("add"));
+            clickPoint(EditorTestAccess::ComponentControl(editor, "add:" + name));
+        };
+        auto openComponent = [&](const std::string& name) {
+            const auto point = reveal("header:" + name);
+            if (!EditorTestAccess::HasControl(editor, "open:" + name))
+                clickPoint(point);
+        };
+        addComponent("collider");
+        require(scene.Find(player)->Get<Collider>(), "UI adds collider");
+        openComponent("collider");
+        clickPoint(reveal("property:collider:shape"));
+        clickPoint(EditorTestAccess::ComponentControl(editor, "choice:collider:shape:box"));
+        require(scene.Find(player)->Get<Collider>()->shape == Shape::Box, "UI selects box enum");
+        clickPoint(reveal("property:collider:trigger"));
+        require(scene.Find(player)->Get<Collider>()->trigger, "UI edits collider trigger");
+        const auto maskControl = reveal("property:collider:mask");
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        frame();
+        clickPoint(maskControl);
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        frame();
+        io.AddInputCharactersUTF8("2147483648");
+        frame();
+        key(ImGuiKey_Enter);
+        key(ImGuiKey_Escape);
+        require(scene.Find(player)->Get<Collider>()->mask == 0x80000000u, "UI unsigned high bit");
+        const auto withCollider = SceneIO::Encode(scene, cameraId, player, camera);
+        renderer.RequestCapture("captures/editor-common-components.bmp");
+        frame();
+        clickPoint(reveal("remove:collider"));
+        require(!scene.Find(player)->Get<Collider>(), "UI removes collider");
+        shortcut(ImGuiKey_Z);
+        require(SceneIO::Encode(scene, cameraId, player, camera) == withCollider,
+                "UI undo restores collider settings");
+        shortcut(ImGuiKey_Y);
+        require(!scene.Find(player)->Get<Collider>(), "UI redo removes collider");
+        addComponent("parameters");
+        openComponent("parameters");
+        clickPoint(reveal("parameter:add"));
+        require(scene.Find(player)->Get<Parameters>()->values.contains("Parameter"),
+                "UI adds named parameter");
+        clickPoint(reveal("parameter:add"));
+        require(scene.Find(player)->Get<Parameters>()->values.size() == 1,
+                "duplicate parameter preserves existing value");
+        const auto withParameters = SceneIO::Encode(scene, cameraId, player, camera);
+        shortcut(ImGuiKey_S);
+        loaded = SceneIO::Load("logs/editor-workflow-scene.json", cache);
+        require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player, loaded.cameraData) ==
+                    withParameters,
+                "UI saves new parameters component");
+        clickPoint(reveal("remove:parameters"));
+        require(!scene.Find(player)->Get<Parameters>(), "UI removes parameters");
+        openComponent("cube");
+        clickPoint(reveal("remove:cube"));
+        require(!scene.Find(player)->Get<MeshComponent>(), "UI removes mesh component");
+        addComponent("cube");
+        require(scene.Find(player)->Get<MeshComponent>() &&
+                    scene.Find(player)->Get<MeshComponent>()->mesh->builtinCube,
+                "UI adds cube mesh to existing object");
+        shortcut(ImGuiKey_S);
+        click(271, 42);
+        require(editor.Playing(), "common components Play");
+        click(300, 42);
+        require(!editor.Playing(), "common components Stop");
 
         std::filesystem::remove(nested);
         std::filesystem::remove(folder);

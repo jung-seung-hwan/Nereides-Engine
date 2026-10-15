@@ -1,8 +1,12 @@
 #include "Reflection/ComponentRegistry.h"
 #include "Sandbox/MoveComponent.h"
+#include "Collision/Collision.h"
+#include "Data/SceneIO.h"
 #include <cmath>
 #include <set>
 #include <stdexcept>
+#include <algorithm>
+#include <climits>
 
 namespace nereides
 {
@@ -23,6 +27,11 @@ void PropertyInfo::Validate(const PropertyValue& value) const
                 number(v.y);
                 number(v.z);
             }
+            else if constexpr (std::is_same_v<V, std::string>)
+            {
+                if (std::find(choices.begin(), choices.end(), v) == choices.end())
+                    throw std::runtime_error("Unknown enum key: " + name);
+            }
             else if constexpr (!std::is_same_v<V, bool>)
                 number(v);
         },
@@ -37,18 +46,22 @@ void PropertyInfo::Set(Component& component, const PropertyValue& value) const
 
 void ComponentRegistry::Register(ComponentType type)
 {
-    if (type.name.empty() || type.label.empty() || !type.create || m_types.contains(type.name))
+    if (type.name.empty() || type.label.empty() || (!type.create && !type.createFromFile) ||
+        m_types.contains(type.name))
         throw std::runtime_error("Invalid/duplicate component registration: " + type.name);
-    // 기존 리소스·동적 맵 전용 직렬화 키와 충돌하지 않게 한다.
-    if (type.name == "cube" || type.name == "model" || type.name == "collider" ||
-        type.name == "parameters")
+    // 전용 직렬화 키는 해당 실제 타입만 사용할 수 있다.
+    if ((type.name == "cube" && type.cppType != typeid(MeshComponent)) ||
+        (type.name == "model" && type.cppType != typeid(ModelComponent)) ||
+        (type.name == "collider" && type.cppType != typeid(Collider)) ||
+        (type.name == "parameters" && type.cppType != typeid(Parameters)))
         throw std::runtime_error("Reserved component type: " + type.name);
     for (const auto& [name, existing] : m_types)
         if (existing.cppType == type.cppType)
             throw std::runtime_error("C++ component type already registered: " + name);
     std::set<std::string> fields{"type", "enabled"};
-    const auto sample = type.create();
-    if (!sample || std::type_index(typeid(*sample)) != type.cppType)
+    const auto sample = type.create ? type.create() : nullptr;
+    if ((type.create && (!sample || std::type_index(typeid(*sample)) != type.cppType)) ||
+        (!sample && !type.properties.empty()))
         throw std::runtime_error("Component factory type mismatch");
     for (const auto& property : type.properties)
     {
@@ -58,6 +71,10 @@ void ComponentRegistry::Register(ComponentType type)
             throw std::runtime_error("Invalid property registration: " + property.name);
         property.Validate(property.defaultValue);
         property.Validate(property.read(*sample));
+        std::set<std::string> choices;
+        for (const auto& key : property.choices)
+            if (key.empty() || !choices.insert(key).second)
+                throw std::runtime_error("Duplicate/empty enum key: " + property.name);
     }
     const auto name = type.name;
     m_types.emplace(name, std::move(type));
@@ -77,7 +94,8 @@ const ComponentType* ComponentRegistry::Find(const Component& component) const
     return nullptr;
 }
 
-Component& ComponentRegistry::Add(Object& object, const std::string& name) const
+Component& ComponentRegistry::Add(Object& object, const std::string& name, ModelCache* cache,
+                                  const std::filesystem::path& source) const
 {
     const auto* type = Find(name);
     if (!type)
@@ -85,7 +103,18 @@ Component& ComponentRegistry::Add(Object& object, const std::string& name) const
     for (const auto* component : object.Components())
         if (std::type_index(typeid(*component)) == type->cppType)
             throw std::runtime_error("Duplicate component: " + name);
-    return object.AddComponent(type->create());
+    std::unique_ptr<Component> component;
+    if (type->createFromFile)
+    {
+        if (!cache || source.empty())
+            throw std::runtime_error("Component requires a model file: " + name);
+        component = type->createFromFile(*cache, source);
+    }
+    else
+        component = type->create();
+    if (!component || std::type_index(typeid(*component)) != type->cppType)
+        throw std::runtime_error("Component factory type mismatch: " + name);
+    return object.AddComponent(std::move(component));
 }
 
 ComponentRegistry& ComponentTypes()
@@ -95,6 +124,27 @@ ComponentRegistry& ComponentTypes()
         result.Register(DescribeComponent<MoveComponent>(
             "move", "Move Component",
             {Property("speed", "Move speed", &MoveComponent::speed, 0, 1000)}));
+        result.Register(DescribeComponent<Collider>(
+            "collider", "Collider",
+            {EnumProperty<Collider, Shape>("shape", "Shape", &Collider::shape,
+                                           {{"sphere", Shape::Sphere}, {"box", Shape::Box}}),
+             Property("offset", "Offset", &Collider::offset),
+             Property("extents", "Half extents (box)", &Collider::halfExtents, 0, 1e9),
+             Property("radius", "Radius (sphere)", &Collider::radius, 0, 10000),
+             Property("layer", "Layer bits", &Collider::layer, 0, double(UINT_MAX)),
+             Property("mask", "Mask bits", &Collider::mask, 0, double(UINT_MAX)),
+             Property("trigger", "Trigger", &Collider::trigger)}));
+        result.Register({"cube",
+                         "Mesh Component (Cube)",
+                         typeid(MeshComponent),
+                         [] { return std::make_unique<MeshComponent>(MakeCube()); },
+                         {}});
+        result.Register(DescribeComponent<Parameters>("parameters", "Parameters", {}));
+        ComponentType model{"model", "Model Component (file...)", typeid(ModelComponent), {}, {}};
+        model.createFromFile = [](ModelCache& cache, const std::filesystem::path& path) {
+            return std::make_unique<ModelComponent>(cache.Load(path));
+        };
+        result.Register(std::move(model));
         return result;
     }();
     return registry;

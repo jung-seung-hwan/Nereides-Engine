@@ -99,7 +99,7 @@ Release 검증 후 `./scripts/package.ps1`로 새 dist 폴더에 실행 파일·
 
 [엔진 전체 구조 HTML](docs/engine-architecture.html)에 실행 루프, 객체 수명, 리플렉션, 모델·렌더·충돌·서비스의 데이터 흐름과 실제 코드 위치를 정리했다.
 
-Inspector의 Add Component에서 Move Component를 붙이고 Move speed·활성 상태를 편집할 수 있다. Remove component, Undo/Redo, 씬 저장·복원도 지원한다. `src/Reflection/ComponentRegistry.cpp`의 명시적 타입·속성 등록을 에디터와 SceneIO가 공유한다. 새 컴포넌트 등록 방법과 지원 자료형은 [등록 안내](docs/integration-contracts.md#컴포넌트-등록과-속성-편집)를 따른다. 모델·콜라이더 등 기존 전용 편집 경로의 공통 등록 전환은 후속 작업이다.
+Inspector의 Add Component에서 Move, Collider, Mesh(Cube), Model, Parameters를 현재 객체에 붙일 수 있다. 모델은 파일 선택·로드가 성공한 뒤 부착하며, 취소·실패 시 객체를 변경하지 않는다. 각 컴포넌트 헤더를 펼치면 활성 상태·속성·Remove component를 사용할 수 있다. Collider는 Sphere/Box·오프셋·크기·32비트 layer/mask·Trigger, Mesh는 색상, Parameters는 이름별 값·최소/최대와 항목 추가·삭제를 편집한다. 같은 타입의 중복 추가는 막으며 Undo/Redo·씬 저장·복원도 지원한다. 등록 방법과 리소스·동적 데이터의 전용 처리 경계는 [등록 안내](docs/integration-contracts.md#컴포넌트-등록과-속성-편집)를 따른다.
 
 렌더러는 기본색과 스키닝을 확인하는 임시 백엔드다. Sherlock 포팅·최종 재질/텍스처·그림자·바다/폭풍은 렌더 담당과 연결한다. 독립 Scene 뷰포트와 Undo/Redo는 지원한다. 별도 모션 리타게팅·고급 재질 도구·자동 저장·다중 선택·오디오는 후속 작업이다.
 
