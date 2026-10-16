@@ -194,10 +194,10 @@ void Scene::Dispose(Object& object, Component& component) noexcept
 
 void Scene::Initialize(const Batch& batch)
 {
-    // 비활성이어도 Awake는 수행한다. 여기서는 참조를 찾고 Start에서 사용한다.
+    // 객체가 계층상 활성일 때만 Awake한다. 컴포넌트 자체의 비활성은 초기화를 막지 않는다.
     for (const auto& [object, components] : batch)
         for (auto* component : components)
-            if (m_playing && !object->m_destroyed && !component->m_removed && !component->m_awake)
+            if (m_playing && Active(object->Id()) && !component->m_removed && !component->m_awake)
             {
                 component->m_awake = true;
                 component->Awake(*object, *this);

@@ -479,8 +479,7 @@ void TestLifecycle()
     scene.SetParent(child.Id(), parentId);
     scene.BeginPlay();
     scene.FixedUpdate({input, time});
-    Require(calls == std::vector<std::string>{"child:awake"},
-            "inactive child waits for first Start");
+    Require(calls.empty(), "inactive parent defers child Awake and Start");
     parent.SetEnabled(true);
     scene.FixedUpdate({input, time});
     Require(calls == std::vector<std::string>{"child:awake", "child:enable", "child:start",
@@ -497,11 +496,45 @@ void TestLifecycle()
     scene.EndPlay();
 
     calls.clear();
+    auto& inactive = scene.Create("initially inactive");
+    inactive.SetEnabled(false);
+    auto& disabled = inactive.Add<LifecycleProbe>(calls, "disabled");
+    disabled.SetEnabled(false);
+    auto& neverActive = scene.Create("never activated");
+    neverActive.SetEnabled(false);
+    neverActive.Add<LifecycleProbe>(calls, "never");
+    scene.BeginPlay();
+    scene.Update({input, time});
+    Require(calls.empty(), "inactive objects defer all initialization on either update path");
+    inactive.SetEnabled(true);
+    Require(calls.empty(), "activation only schedules initialization at the next boundary");
+    scene.Update({input, time});
+    Require(calls == std::vector<std::string>{"disabled:awake"},
+            "active object initializes even a disabled component");
+    disabled.SetEnabled(true);
+    scene.Update({input, time});
+    Require(calls == std::vector<std::string>{"disabled:awake", "disabled:enable",
+                                             "disabled:start", "disabled:update"},
+            "component activation starts without repeating Awake");
+    calls.clear();
+    inactive.SetEnabled(false);
+    scene.Update({input, time});
+    inactive.SetEnabled(true);
+    scene.Update({input, time});
+    Require(calls == std::vector<std::string>{"disabled:disable", "disabled:enable",
+                                             "disabled:update"},
+            "object reactivation never repeats Awake or Start");
+    calls.clear();
+    scene.EndPlay();
+    Require(calls == std::vector<std::string>{"disabled:disable", "disabled:destroy"},
+            "never active objects receive no OnDestroy before their Awake");
+
+    calls.clear();
     auto& spawner = scene.Create("spawner").Add<LifecycleProbe>(calls, "spawner");
     spawner.fixed = [&](Object& self, Scene& current) {
+        self.Remove<LifecycleProbe>();
         self.Add<LifecycleProbe>(calls, "attached");
         current.Create("spawned").Add<LifecycleProbe>(calls, "spawned");
-        self.Remove<LifecycleProbe>();
     };
     scene.BeginPlay();
     calls.clear();
@@ -808,6 +841,14 @@ void TestReflection()
     move.speed = 6.5f;
     move.SetEnabled(false);
     Require(rejects([&] { registry.Add(object, "move"); }), "duplicate add rejected");
+    Require(rejects([&] { object.Add<MoveComponent>(); }),
+            "direct add rejects even disabled duplicate");
+    Require(rejects([&] { object.AddComponent(std::make_unique<MoveComponent>()); }),
+            "owned component add cannot bypass duplicate policy");
+    Require(rejects([&] { object.AddComponent(nullptr); }), "null component rejected");
+    Require(object.Components().size() == 2 && object.Get<MoveComponent>() == &move &&
+                Near(move.speed, 6.5) && !move.Enabled(),
+            "rejected additions preserve existing instances and settings");
     Require(rejects([&] { registry.Add(object, "unknown"); }), "unknown add rejected");
     Require(rejects([&] { type->properties[0].Set(probe, -1.f); }) && Near(probe.strength, 7.5),
             "invalid property edit is non-mutating");
@@ -843,8 +884,15 @@ void TestReflection()
     Require(rejects([&] { SceneIO::Encode(scene, camera, object.Id()); }),
             "nonfinite save rejected");
     object.Remove(move);
+    auto& replacement = object.Add<MoveComponent>();
+    replacement.speed = 4.f;
+    Require(object.Get<MoveComponent>() == &replacement && object.Components().size() == 2,
+            "removed component can be replaced before Flush");
     scene.Flush();
-    Require(!object.Get<MoveComponent>(), "registered component instance removed");
+    Require(object.Get<MoveComponent>() == &replacement && Near(replacement.speed, 4),
+            "Flush preserves replacement component");
+    object.Remove(replacement);
+    scene.Flush();
     registry.Add(object, "move");
     Require(object.Get<MoveComponent>(), "registered component can be added again");
 }

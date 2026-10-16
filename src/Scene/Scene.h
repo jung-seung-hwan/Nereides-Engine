@@ -8,6 +8,7 @@
 #include <vector>
 #include <utility>
 #include <stdexcept>
+#include <typeinfo>
 
 namespace nereides
 {
@@ -49,7 +50,8 @@ class Component
 public:
     virtual ~Component() = default;
 
-    // 씬 구성·설정 복원 후 한 번. 같은 갱신 목록의 Awake를 모두 끝낸 뒤 Start한다.
+    // 객체가 계층상 활성일 때 한 번. 컴포넌트 자체는 비활성이어도 호출한다.
+    // 같은 갱신 목록에서 대상들의 Awake를 끝낸 뒤 Start한다.
     virtual void Awake(Object&, Scene&) {}
     virtual void OnEnable(Object&, Scene&) {}
     virtual void Start(Object&, Scene&) {}
@@ -119,15 +121,21 @@ public:
     {
         auto value = std::make_unique<T>(std::forward<Args>(args)...);
         auto& result = *value;
-        m_components.push_back(std::move(value));
+        AddComponent(std::move(value));
         return result;
     }
 
-    // 등록된 생성 함수가 만든 컴포넌트의 소유권을 객체로 옮긴다.
+    // 모든 부착 경로에서 실제 C++ 타입당 하나만 허용한다. 비활성도 중복이다.
+    // 삭제 예약된 인스턴스는 제외하므로 Flush 전에도 교체할 수 있다.
+    // 실패 시 전달받은 새 인스턴스는 해제되고 기존 구성은 유지된다.
     Component& AddComponent(std::unique_ptr<Component> component)
     {
         if (!component)
             throw std::invalid_argument("Cannot add null component");
+        for (const auto& owned : m_components)
+            if (!owned->m_removed && typeid(*owned) == typeid(*component))
+                throw std::runtime_error(std::string("Duplicate component: ") +
+                                         typeid(*component).name());
         auto& result = *component;
         m_components.push_back(std::move(component));
         return result;
