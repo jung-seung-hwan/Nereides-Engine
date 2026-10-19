@@ -54,11 +54,15 @@ struct BoneBinding
     DirectX::XMFLOAT4X4 inverseBind{};
 };
 
-// MaterialData : 재질 이름, 색상, 텍스처 경로
+// MaterialData : 재질 이름, 색상, 텍스처 경로, PBR 값
 struct MaterialData
 {
     std::string name, baseColorTexture, normalTexture;
+    std::string metallicRoughnessTexture, occlusionTexture, emissiveTexture;
     DirectX::XMFLOAT4 baseColor{1, 1, 1, 1};
+    DirectX::XMFLOAT3 emissive{0, 0, 0};
+    float metallic = 0, roughness = 0.5f;
+    bool doubleSided = false;
 };
 
 // ModelPart : 모델에서 그릴 메시 한 부분
@@ -76,6 +80,8 @@ struct ModelData
     std::vector<ModelNode> nodes;
     std::vector<ModelPart> parts;
     std::vector<MaterialData> materials;
+    // materials와 같은 순서의 렌더러용 재질. 같은 모델을 쓰는 모든 객체가 공유해 GPU 재질 캐시를 재사용함.
+    std::vector<std::shared_ptr<const Material>> renderMaterials;
     std::vector<AnimationClip> clips;
 };
 

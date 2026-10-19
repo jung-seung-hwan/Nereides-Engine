@@ -1,4 +1,5 @@
 #include "Tests/EngineTests.h"
+#include "Renderer/RenderTestScene.h"
 #include "Core/Input.h"
 #include "Core/Time.h"
 #include "Core/Log.h"
@@ -13,6 +14,8 @@
 #include "Presentation/Transition.h"
 #include "Core/Events.h"
 #include "Graphics/TextureCache.h"
+#include "Renderer/TextureLoader.h"
+#include "Renderer/RenderComponents.h"
 #include "Editor/EditHistory.h"
 #include "Editor/EditorGeometry.h"
 #include "Editor/Console.h"
@@ -1233,6 +1236,200 @@ void TestTransitionsAndEvents()
                 "restart releases resources and old references");
     }
 }
+
+// 큐브 기하, 재질 캐시 규칙, 텍스처 로더, GPU 캐시 정합(메시·재질 교체), 스키닝 경로를 확인
+// 구·PBR 값·조명·환경이 씬 파일을 거쳐도 유지되고 RenderFrame 에 반영되는지
+void TestRenderSceneComponents()
+{
+    using namespace DirectX;
+    Scene scene;
+    auto& camera = scene.Create("Camera");
+    auto& sphere = scene.Create("Sphere");
+    auto& mesh = sphere.Add<MeshComponent>(MakeSphere(.8f, 48, 24));
+    mesh.tint = {1, .766f, .336f, 1};
+    mesh.metallic = 1;
+    mesh.roughness = .2f;
+    auto& light = scene.Create("Light");
+    light.transform.position = {0, 10, -10};
+    light.transform.rotation = {-.3f, .7f, 0};
+    auto& lightComponent = light.Add<LightComponent>();
+    lightComponent.intensity = 1.2f;
+    lightComponent.color = {1, .62f, .42f};
+    auto& environment = scene.Create("Environment").Add<EnvironmentComponent>();
+    environment.preset = EnvironmentPreset::CubemapSample;
+    environment.iblIntensity = .5f;
+    environment.toneMapping = true;
+
+    const auto text = SceneIO::Encode(scene, camera.Id(), 0);
+    ModelCache cache;
+    auto loaded = SceneIO::Decode(text, cache);
+    Require(SceneIO::Encode(loaded.scene, loaded.camera, 0, loaded.cameraData) == text,
+            "sphere/light/environment scene round trip");
+
+    const auto frame = CollectRenderFrame(loaded.scene, loaded.camera, loaded.cameraData, 1, 0);
+    Require(frame.items.size() == 1 && frame.items[0].material, "sphere draw item");
+    Require(frame.items[0].material->metallic == 1 && Near(frame.items[0].material->roughness, .2) &&
+                Near(frame.items[0].material->baseColor.y, .766),
+            "sphere PBR values reach the material");
+    Require(frame.items[0].mesh->vertices.size() == 2 + 23 * 49, "sphere vertex count");
+    Require(frame.lights.size() == 1 && Near(frame.lights[0].intensity, 1.2) &&
+                Near(frame.lights[0].position.y, 10),
+            "scene light replaces default light");
+    // 앞쪽(+Z)을 회전한 방향이 빛의 방향
+    XMFLOAT3 expected;
+    XMStoreFloat3(&expected, XMVector3TransformNormal(XMVectorSet(0, 0, 1, 0),
+                                                      XMMatrixRotationRollPitchYaw(-.3f, .7f, 0)));
+    Require(Near(frame.lights[0].direction.x, expected.x) &&
+                Near(frame.lights[0].direction.y, expected.y) &&
+                Near(frame.lights[0].direction.z, expected.z),
+            "light direction follows object rotation");
+    Require(frame.environment.skybox == "Cubemap/CubemapSampleEnvHDR.dds" &&
+                Near(frame.environment.iblIntensity, .5) && frame.environment.toneMapping,
+            "environment preset reaches the frame");
+
+    // 조명·환경이 없는 씬은 기본값을 유지
+    Scene plain;
+    auto& view = plain.Create("Camera");
+    const auto defaults = CollectRenderFrame(plain, view.Id(), Camera{}, 1, 0);
+    Require(defaults.lights.size() == 1 && defaults.environment.skybox == "builtin:sky",
+            "scene without light/environment keeps renderer defaults");
+}
+
+
+void TestRenderPipeline()
+{
+    using namespace DirectX;
+
+    // 큐브: 면마다 정점 4개, 노멀·탄젠트 정규, 바깥에서 볼 때 시계방향 (노멀과 같은 방향의 외적)
+    const auto cube = MakeCube();
+    Require(cube->vertices.size() == 24 && cube->indices.size() == 36, "cube has 24 vertices");
+
+    for (const auto& v : cube->vertices)
+    {
+        const auto n = XMLoadFloat3(&v.normal);
+        const auto t = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(&v.tangent));
+        Require(Near(XMVectorGetX(XMVector3Length(n)), 1) && Near(XMVectorGetX(XMVector3Length(t)), 1),
+                "cube normal and tangent are unit vectors");
+        Require(Near(XMVectorGetX(XMVector3Dot(n, t)), 0) && std::abs(v.tangent.w) == 1,
+                "cube tangent is perpendicular to the normal");
+    }
+
+    for (std::size_t i = 0; i < cube->indices.size(); i += 3)
+    {
+        const auto& a = cube->vertices[cube->indices[i]];
+        const auto& b = cube->vertices[cube->indices[i + 1]];
+        const auto& c = cube->vertices[cube->indices[i + 2]];
+        const auto face = XMVector3Cross(XMLoadFloat3(&b.position) - XMLoadFloat3(&a.position),
+                                         XMLoadFloat3(&c.position) - XMLoadFloat3(&a.position));
+        Require(XMVectorGetX(XMVector3Dot(face, XMLoadFloat3(&a.normal))) > 0,
+                "cube winding is clockwise from outside");
+    }
+
+    // 재질: tint가 같으면 같은 객체(GPU 캐시 재사용), 바뀌면 새 객체
+    MeshComponent component(cube);
+    const auto first = component.RenderMaterial();
+    Require(first && first == component.RenderMaterial(), "mesh material is reused");
+    component.tint = {.1f, .2f, .3f, 1};
+    const auto second = component.RenderMaterial();
+    Require(second != first && Near(second->baseColor.z, .3), "tint change builds a new material");
+
+    // 프레임 기본값
+    RenderFrame defaults;
+    Require(defaults.lights.size() == 1 && defaults.lights[0].type == 0 &&
+                !defaults.environment.skybox.empty(),
+            "default frame has a directional light and a sky");
+
+    // 텍스처 로더: 4x4 24비트 BMP를 sRGB 밉 체인으로 읽음
+    {
+        std::vector<unsigned char> bmp(14 + 40 + 4 * 4 * 3, 0);
+        bmp[0] = 'B';
+        bmp[1] = 'M';
+        const auto put32 = [&](std::size_t at, unsigned value) {
+            for (unsigned b = 0; b < 4; ++b)
+                bmp[at + b] = static_cast<unsigned char>(value >> (8 * b));
+        };
+        put32(2, static_cast<unsigned>(bmp.size()));
+        put32(10, 54);
+        put32(14, 40);
+        put32(18, 4);
+        put32(22, 4);
+        bmp[26] = 1;
+        bmp[28] = 24;
+        for (std::size_t i = 54; i < bmp.size(); ++i)
+            bmp[i] = static_cast<unsigned char>(i * 7);
+        std::filesystem::create_directories("logs");
+        std::ofstream("logs/render-probe.bmp", std::ios::binary)
+            .write(reinterpret_cast<const char*>(bmp.data()), static_cast<std::streamsize>(bmp.size()));
+    }
+
+    Win32Window window;
+    Require(window.Create(GetModuleHandleW(nullptr), SW_HIDE), "render test window");
+    D3D11Renderer renderer;
+    Require(renderer.Initialize(window.Handle(), window.Width(), window.Height()),
+            "render test renderer");
+
+    TextureImage image;
+    Require(TextureLoader::LoadFromFile(L"logs/render-probe.bmp", true, true, image) &&
+                image.desc.width == 4 && image.desc.mipLevels == 3 &&
+                image.desc.format == Format::R8G8B8A8_UNORM_SRGB,
+            "texture loader reads sRGB mip chain");
+    Require(!TextureLoader::LoadFromFile(L"logs/no-such-texture.png", true, true, image),
+            "texture loader reports a missing file");
+
+    // GPU 정합: 같은 카메라로 그린 결과가 재질·메시가 바뀌면 달라져야 함 (예전 캐시가 남으면 같음)
+    const auto render = [&](std::shared_ptr<const MeshData> mesh,
+                            std::shared_ptr<const Material> material, std::vector<XMFLOAT4X4> bones = {}) {
+        RenderFrame frame;
+        frame.lights.assign(12, LightData{}); // 8개를 넘는 조명은 앞의 8개만 쓰임
+        XMStoreFloat4x4(&frame.view, XMMatrixLookAtLH(XMVectorSet(0, 1.5f, -4, 1), XMVectorZero(),
+                                                      XMVectorSet(0, 1, 0, 0)));
+        XMStoreFloat4x4(&frame.projection,
+                        XMMatrixPerspectiveFovLH(XM_PIDIV4, float(window.Width()) / window.Height(),
+                                                 .1f, 50));
+        DrawItem item;
+        item.mesh = std::move(mesh);
+        XMStoreFloat4x4(&item.world, XMMatrixIdentity());
+        item.material = std::move(material);
+        item.bones = std::move(bones);
+        frame.items.push_back(std::move(item));
+        std::uint64_t hash = 0;
+        Require(renderer.RenderScene(frame, true, &hash), "render test frame");
+        return hash;
+    };
+
+    MeshComponent red(MakeCube()), blue(MakeCube());
+    red.tint = {1, 0, 0, 1};
+    blue.tint = {0, 0, 1, 1};
+    const auto redHash = render(red.mesh, red.RenderMaterial());
+    Require(redHash == render(red.mesh, red.RenderMaterial()), "static frame is repeatable");
+    Require(redHash != render(red.mesh, blue.RenderMaterial()), "material change reaches the GPU");
+
+    // 메시 교체: 같은 주소의 새 메시가 예전 GPU 버퍼로 그려지면 안 됨
+    {
+        auto replaced = MakeCube();
+        const auto before = render(replaced, red.RenderMaterial());
+        replaced.reset();
+        auto smaller = std::make_shared<MeshData>(*MakeCube());
+        for (auto& v : smaller->vertices)
+            v.position = {v.position.x * .4f, v.position.y * .4f, v.position.z * .4f};
+        Require(before != render(smaller, red.RenderMaterial()),
+                "replaced mesh is not drawn with stale buffers");
+    }
+
+    // 스키닝: 뼈 행렬이 바뀌면 화면이 바뀜 (메인·그림자 두 패스의 스키닝 셰이더가 모두 실행됨)
+    {
+        auto skinned = std::make_shared<MeshData>(*MakeCube());
+        for (auto& v : skinned->vertices)
+            v.weights = {1, 0, 0, 0};
+        XMFLOAT4X4 identity, moved;
+        XMStoreFloat4x4(&identity, XMMatrixIdentity());
+        XMStoreFloat4x4(&moved, XMMatrixTranslation(1.5f, 0, 0));
+        const auto still = render(skinned, red.RenderMaterial(), {identity});
+        Require(still == redHash, "identity skin draws like the static mesh");
+        Require(still != render(skinned, red.RenderMaterial(), {moved}), "bone matrix moves the mesh");
+    }
+}
+
 } // namespace
 
 
@@ -1255,6 +1452,8 @@ int RunEngineTests()
         TestEditorHistory();
         TestConsoleRecords();
         TestTransitionsAndEvents();
+        TestRenderPipeline();
+        TestRenderSceneComponents();
         Log::Write(
             LogLevel::Info,
             "Engine tests PASS: input, time, scene, lifecycle, render input, animation, model cache, "
@@ -1271,6 +1470,10 @@ int RunEngineTests()
 
 int RunModelTest(const std::filesystem::path& path)
 {
+    // Main.cpp 를 건드리지 않으려고 모델 시험 진입점을 공유함: .json 은 Sherlock 형식 렌더 시험 장면
+    if (path.extension() == ".json")
+        return RunRenderTestScene(path);
+
     try
     {
         ModelCache cache;

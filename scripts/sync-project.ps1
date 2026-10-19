@@ -15,9 +15,24 @@ foreach ($name in @('NereidesSandbox.vcxproj','NereidesSandbox.vcxproj.filters')
             if ($name.EndsWith('.filters')) {
                 $filter = $xml.CreateElement('Filter',$ns)
                 $filter.InnerText = if ($kind -eq 'ClCompile') {'Source Files'} else {'Header Files'}
+                # 렌더러 코드는 src\Renderer 폴더와 같은 이름의 필터에 모음
+                if ($file.FullName.StartsWith((Join-Path $root 'src\Renderer'))) { $filter.InnerText += '\Renderer' }
                 $null = $node.AppendChild($filter)
             }
             $null = $group.AppendChild($node)
+        }
+    }
+    if ($name.EndsWith('.filters')) {
+        $definitions = $xml.Project.ItemGroup | Where-Object { $_.Filter } | Select-Object -First 1
+        foreach ($filterName in @('Source Files\Renderer','Header Files\Renderer')) {
+            if ($definitions.SelectNodes("*[local-name()='Filter'][@Include='$filterName']").Count -eq 0) {
+                $definition = $xml.CreateElement('Filter',$ns)
+                $definition.SetAttribute('Include',$filterName)
+                $id = $xml.CreateElement('UniqueIdentifier',$ns)
+                $id.InnerText = '{' + [guid]::NewGuid().ToString().ToUpper() + '}'
+                $null = $definition.AppendChild($id)
+                $null = $definitions.AppendChild($definition)
+            }
         }
     }
     $xml.Save($path)

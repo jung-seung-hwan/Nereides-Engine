@@ -1,15 +1,15 @@
 #include "Graphics/D3D11Renderer.h"
+#include "Renderer/Renderer.h"
 #include "Graphics/TriangleShaders.h"
-#include "Graphics/MeshShaders.h"
 #include "Core/Log.h"
+#include "RHI/RHI.h"
+#include "RHI/D3D11/D3D11Device.h"
 #include <algorithm>
-#include <limits>
+#include <cstddef>
 #include <fstream>
 
 #include <d3dcompiler.h>
 #include <d3d11sdklayers.h>
-#include <cstdio>
-#include <cstddef>
 
 namespace nereides
 {
@@ -23,7 +23,37 @@ struct Vertex
     float color[3];
 };
 static_assert(sizeof(Vertex) == 6 * sizeof(float));
+
+// 백버퍼에 쓰는 clear 색 (UNORM 뷰, 감마 변환 없음). 화면에서 (6, 26, 46)이 됨.
+constexpr float kTriangleBackground[] = {0.025f, 0.10f, 0.18f, 1.0f};
+
+// 화면에 무엇인가 그려졌는지 검사한다. 하늘·조명 때문에 "배경색이 아닌 픽셀 수"는 의미가 없어서,
+// (1) 모서리 픽셀과 뚜렷이 다른 픽셀이 있고 (2) 밝은 픽셀이 있는지를 본다. rowPitch 는 바이트 단위.
+bool LooksRendered(const unsigned char* rgba, std::size_t rowPitch, std::uint32_t width,
+                   std::uint32_t height)
+{
+    if (width == 0 || height == 0)
+        return false;
+
+    const auto sum = [](const unsigned char* p) { return unsigned(p[0]) + p[1] + p[2]; };
+    const unsigned corner = sum(rgba);
+    unsigned different = 0, bright = 0;
+
+    for (std::uint32_t y = 0; y < height; ++y)
+        for (std::uint32_t x = 0; x < width; ++x)
+        {
+            const unsigned value = sum(rgba + y * rowPitch + x * 4);
+            if (value > 150)
+                ++bright;
+            if (value + 30 < corner || value > corner + 30)
+                ++different;
+        }
+    return bright > 16 && different > 16;
+}
 } // namespace
+
+
+D3D11Renderer::D3D11Renderer() = default;
 
 
 D3D11Renderer::~D3D11Renderer()
@@ -32,112 +62,80 @@ D3D11Renderer::~D3D11Renderer()
 }
 
 
-bool D3D11Renderer::Check(HRESULT result, const wchar_t* operation)
+bool D3D11Renderer::Fail(const char* message)
 {
-    if (SUCCEEDED(result))
-        return true;
-
-    wchar_t message[512]{};
-    swprintf_s(message, L"[Nereides] %s failed: HRESULT 0x%08X\n", operation,
-               static_cast<unsigned>(result));
-    OutputDebugStringW(message);
-    if (m_device && (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET))
-    {
-        wchar_t reason[128]{};
-        swprintf_s(reason, L"[Nereides] Device removed reason: 0x%08X\n",
-                   static_cast<unsigned>(m_device->GetDeviceRemovedReason()));
-        OutputDebugStringW(reason);
-    }
-
-    MessageBoxW(nullptr, message, L"Nereides DX11 error", MB_OK | MB_ICONERROR);
+    Log::Write(LogLevel::Error, message);
     return false;
 }
 
 
-// 창에 출력할 DX11 환경 준비
+ID3D11Device* D3D11Renderer::Device() const
+{
+    return m_d3d ? m_d3d->GetDevice() : nullptr;
+}
+
+
+ID3D11DeviceContext* D3D11Renderer::Context() const
+{
+    return m_d3d ? m_d3d->GetContext() : nullptr;
+}
+
+
+void D3D11Renderer::SetVSync(bool enabled)
+{
+    if (m_rhi)
+        m_rhi->SetVSync(enabled);
+}
+
+
+RenderSettings& D3D11Renderer::Settings()
+{
+    return m_renderer->GetSettings();
+}
+
+
+// 창에 출력할 환경 준비: RHI 장치(스왑체인 포함), 장면 렌더러, 기본 삼각형
 bool D3D11Renderer::Initialize(HWND window, std::uint32_t width, std::uint32_t height)
 {
-    if (!window || width == 0 || height == 0 || m_device)
+    if (!window || width == 0 || height == 0 || m_rhi)
         return false;
 
-    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-#if defined(_DEBUG)
-    flags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-    const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0};
-    if (!Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, levels, 1,
-                                 D3D11_SDK_VERSION, m_device.GetAddressOf(), nullptr,
-                                 m_context.GetAddressOf()),
-               L"D3D11CreateDevice"))
-        return false;
+    // WIC로 PNG·JPG를 읽는 텍스처 로더가 이 스레드의 COM을 요구함. 이미 다른 모드로 초기화됐으면(RPC_E_CHANGED_MODE) 그대로 씀.
+    const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    m_comInitialized = SUCCEEDED(com);
+    if (FAILED(com) && com != RPC_E_CHANGED_MODE)
+        return Fail("COM 초기화 실패");
+
+    RHI::DeviceDesc desc;
+    desc.windowHandle = window;
+    desc.width = static_cast<int>(width);
+    desc.height = static_cast<int>(height);
+    desc.enableDebugLayer = true; // Debug 빌드에서만 실제로 켜짐
+    m_rhi = RHI::CreateDevice(RHI::Backend::D3D11, desc);
+    if (!m_rhi)
+        return Fail("RHI 장치 생성 실패");
+
+    m_d3d = static_cast<D3D11Device*>(m_rhi.get());
+    m_rhi->SetVSync(true); // 이전 렌더러의 Present(1, 0)와 같음
 
 #if defined(_DEBUG)
+    // 이전 렌더러와 같이 디버그 레이어의 오류·손상 메시지에서 멈춤. 조용히 지나가는 오류를 막기 위함.
     ComPtr<ID3D11InfoQueue> queue;
-    if (!Check(m_device.As(&queue), L"Query ID3D11InfoQueue"))
-        return false;
-
-    if (!Check(queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE),
-               L"SetBreakOnSeverity(CORRUPTION)"))
-        return false;
-
-    if (!Check(queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE),
-               L"SetBreakOnSeverity(ERROR)"))
-        return false;
-
-    OutputDebugStringW(L"[Nereides] DX11 debug layer enabled.\n");
-#endif
-
-    ComPtr<IDXGIDevice> dxgiDevice;
-    ComPtr<IDXGIAdapter> adapter;
-    ComPtr<IDXGIFactory2> factory;
-    if (!Check(m_device.As(&dxgiDevice), L"Query IDXGIDevice") ||
-        !Check(dxgiDevice->GetAdapter(adapter.GetAddressOf()), L"GetAdapter") ||
-        !Check(adapter->GetParent(IID_PPV_ARGS(factory.GetAddressOf())), L"GetParent(factory)"))
-        return false;
-
-    DXGI_SWAP_CHAIN_DESC1 desc{};
-    DXGI_ADAPTER_DESC adapterDescription{};
-    if (SUCCEEDED(adapter->GetDesc(&adapterDescription)))
+    if (SUCCEEDED(m_d3d->GetDevice()->QueryInterface(IID_PPV_ARGS(queue.GetAddressOf()))))
     {
-        const int bytes = WideCharToMultiByte(CP_UTF8, 0, adapterDescription.Description, -1,
-                                              nullptr, 0, nullptr, nullptr);
-        std::string name(static_cast<std::size_t>(bytes), '\0');
-        if (bytes > 0)
-        {
-            WideCharToMultiByte(CP_UTF8, 0, adapterDescription.Description, -1, name.data(), bytes,
-                                nullptr, nullptr);
-            name.pop_back();
-            Log::Write(LogLevel::Info,
-                       "DX11 adapter=" + name + " dedicated_MiB=" +
-                           std::to_string(adapterDescription.DedicatedVideoMemory / 1048576));
-        }
+        queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+        queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE);
     }
-
-    desc.Width = width;
-    desc.Height = height;
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    desc.BufferCount = 2;
-    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    if (!Check(factory->CreateSwapChainForHwnd(m_device.Get(), window, &desc, nullptr, nullptr,
-                                               m_swapChain.GetAddressOf()),
-               L"CreateSwapChainForHwnd"))
-        return false;
-
-    if (!Check(factory->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER),
-               L"MakeWindowAssociation"))
-        return false;
+#endif
 
     m_width = width;
     m_height = height;
-    if (!CreateBackBuffer())
-        return false;
+
+    m_renderer = std::make_unique<Renderer>();
+    if (!m_renderer->Initialize(m_rhi.get()))
+        return Fail("장면 렌더러 초기화 실패");
 
     if (!CreateTriangle())
-        return false;
-
-    if (!CreateMeshPipeline())
         return false;
 
     OutputDebugStringW(L"[Nereides] DX11 renderer initialized.\n");
@@ -145,68 +143,22 @@ bool D3D11Renderer::Initialize(HWND window, std::uint32_t width, std::uint32_t h
 }
 
 
-// 스왑체인의 백버퍼를 얻어 RTV 생성
-// 같은 크기의 깊이 텍스처와 DSV 생성
-bool D3D11Renderer::CreateBackBuffer()
-{
-    ComPtr<ID3D11Texture2D> backBuffer;
-    if (!Check(m_swapChain->GetBuffer(0, IID_PPV_ARGS(backBuffer.GetAddressOf())), L"GetBuffer"))
-        return false;
-
-    if (!Check(m_device->CreateRenderTargetView(backBuffer.Get(), nullptr,
-                                                m_renderTarget.GetAddressOf()),
-               L"CreateRenderTargetView"))
-        return false;
-
-    D3D11_TEXTURE2D_DESC depth{};
-    depth.Width = m_width;
-    depth.Height = m_height;
-    depth.MipLevels = depth.ArraySize = 1;
-    depth.SampleDesc.Count = 1;
-    depth.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-    ComPtr<ID3D11Texture2D> texture;
-    if (!Check(m_device->CreateTexture2D(&depth, nullptr, texture.GetAddressOf()),
-               L"Create depth") ||
-        !Check(m_device->CreateDepthStencilView(texture.Get(), nullptr, m_depth.GetAddressOf()),
-               L"Create DSV"))
-        return false;
-#if defined(_DEBUG)
-    constexpr char name[] = "Nereides.BackBufferRTV";
-    if (!Check(m_renderTarget->SetPrivateData(WKPDID_D3DDebugObjectName, sizeof(name) - 1, name),
-               L"SetPrivateData(RTV name)"))
-        return false;
-#endif
-    return true;
-}
-
-
-// 창 크기 변경 처리
-/*
-기존 출력 대상 연결 해제
- → 백버퍼 RTV·깊이 버퍼 참조 해제
- → SwapChain 버퍼 크기 변경
- → 새 크기 저장
- → RTV·깊이 버퍼 다시 생성
-*/
+// 창 크기 변경 처리. 크기 0(최소화)은 실패로 돌려 호출자가 건너뛰게 함.
 bool D3D11Renderer::Resize(std::uint32_t width, std::uint32_t height)
 {
-    if (!m_swapChain || width == 0 || height == 0)
+    if (!m_rhi || width == 0 || height == 0)
         return false;
 
     if (width == m_width && height == m_height)
         return true;
 
-    m_context->OMSetRenderTargets(0, nullptr, nullptr);
-    m_renderTarget.Reset();
-    m_depth.Reset();
-    if (!Check(m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0),
-               L"ResizeBuffers"))
-        return false;
+    m_rhi->Resize(static_cast<int>(width), static_cast<int>(height));
+    if (!m_rhi->GetBackBuffer().IsValid() || !m_rhi->GetDepthBuffer().IsValid())
+        return Fail("Resize 후 백버퍼를 만들지 못함");
 
     m_width = width;
     m_height = height;
-    return CreateBackBuffer();
+    return true;
 }
 
 
@@ -215,15 +167,14 @@ bool D3D11Renderer::CreateTriangle()
     const Vertex vertices[] = {{{0.0f, 0.6f, 0.5f}, {1.0f, 0.0f, 0.0f}},
                                {{0.6f, -0.6f, 0.5f}, {0.0f, 1.0f, 0.0f}},
                                {{-0.6f, -0.6f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
-    D3D11_BUFFER_DESC bufferDesc{};
-    bufferDesc.ByteWidth = sizeof(vertices);
-    bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
-    bufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    D3D11_SUBRESOURCE_DATA initialData{};
-    initialData.pSysMem = vertices;
-    if (!Check(m_device->CreateBuffer(&bufferDesc, &initialData, m_vertexBuffer.GetAddressOf()),
-               L"CreateBuffer(triangle)"))
-        return false;
+    const BufferDesc bufferDesc{.size = sizeof(vertices),
+                                .usage = BufferUsage::Default,
+                                .bindFlags = BufferBind_Vertex,
+                                .stride = sizeof(Vertex),
+                                .debugName = "TriangleVertices"};
+    m_triangleVertices = m_rhi->CreateBuffer(bufferDesc, vertices);
+    if (!m_triangleVertices.IsValid())
+        return Fail("삼각형 정점 버퍼 생성 실패");
 
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #if defined(_DEBUG)
@@ -231,8 +182,7 @@ bool D3D11Renderer::CreateTriangle()
 #else
     flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
 #endif
-    ComPtr<ID3DBlob> vertexCode;
-    ComPtr<ID3DBlob> pixelCode;
+    ComPtr<ID3DBlob> vertexCode, pixelCode;
     const auto compile = [&](const char* entry, const char* profile, ComPtr<ID3DBlob>& code) {
         ComPtr<ID3DBlob> errors;
         const HRESULT result = D3DCompile(kTriangleShaderSource, sizeof(kTriangleShaderSource) - 1,
@@ -240,137 +190,23 @@ bool D3D11Renderer::CreateTriangle()
                                           flags, 0, code.GetAddressOf(), errors.GetAddressOf());
         if (errors)
             OutputDebugStringA(static_cast<const char*>(errors->GetBufferPointer()));
-        return Check(result, L"D3DCompile(triangle)");
+        return SUCCEEDED(result);
     };
     if (!compile("VSMain", "vs_5_0", vertexCode) || !compile("PSMain", "ps_5_0", pixelCode))
-        return false;
+        return Fail("삼각형 셰이더 컴파일 실패");
 
-    if (!Check(m_device->CreateVertexShader(vertexCode->GetBufferPointer(),
-                                            vertexCode->GetBufferSize(), nullptr,
-                                            m_vertexShader.GetAddressOf()),
-               L"CreateVertexShader"))
-        return false;
+    const auto bytes = [](ComPtr<ID3DBlob>& blob) {
+        return std::span<const std::uint8_t>(
+            static_cast<const std::uint8_t*>(blob->GetBufferPointer()), blob->GetBufferSize());
+    };
+    m_triangleVs = m_rhi->CreateShader(
+        ShaderDesc{.stage = ShaderStage::Vertex, .bytecode = bytes(vertexCode), .debugName = "TriangleVS"});
+    m_trianglePs = m_rhi->CreateShader(
+        ShaderDesc{.stage = ShaderStage::Pixel, .bytecode = bytes(pixelCode), .debugName = "TrianglePS"});
+    if (!m_triangleVs.IsValid() || !m_trianglePs.IsValid())
+        return Fail("삼각형 셰이더 생성 실패");
 
-    if (!Check(m_device->CreatePixelShader(pixelCode->GetBufferPointer(),
-                                           pixelCode->GetBufferSize(), nullptr,
-                                           m_pixelShader.GetAddressOf()),
-               L"CreatePixelShader"))
-        return false;
-
-    const D3D11_INPUT_ELEMENT_DESC elements[] = {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-         static_cast<UINT>(offsetof(Vertex, position)), D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, static_cast<UINT>(offsetof(Vertex, color)),
-         D3D11_INPUT_PER_VERTEX_DATA, 0}};
-    return Check(m_device->CreateInputLayout(elements, 2, vertexCode->GetBufferPointer(),
-                                             vertexCode->GetBufferSize(),
-                                             m_inputLayout.GetAddressOf()),
-                 L"CreateInputLayout");
-}
-
-
-bool D3D11Renderer::CreateMeshPipeline()
-{
-    ComPtr<ID3DBlob> vs, ps, errors;
-
-    for (unsigned i = 0; i < 2; ++i)
-    {
-        auto& code = i == 0 ? vs : ps;
-        errors.Reset();
-        const HRESULT result =
-            D3DCompile(kMeshShader, sizeof(kMeshShader) - 1, "MeshShaders", nullptr, nullptr,
-                       i == 0 ? "VSMain" : "PSMain", i == 0 ? "vs_5_0" : "ps_5_0",
-                       D3DCOMPILE_ENABLE_STRICTNESS, 0, code.GetAddressOf(), errors.GetAddressOf());
-        if (errors)
-            OutputDebugStringA(static_cast<const char*>(errors->GetBufferPointer()));
-        if (!Check(result, L"Compile mesh shader"))
-            return false;
-    }
-
-    if (!Check(m_device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr,
-                                            m_meshVs.GetAddressOf()),
-               L"Mesh VS") ||
-        !Check(m_device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr,
-                                           m_meshPs.GetAddressOf()),
-               L"Mesh PS"))
-        return false;
-
-    const D3D11_INPUT_ELEMENT_DESC elements[] = {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(MeshVertex, position),
-         D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(MeshVertex, color),
-         D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"BLENDINDICES", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, offsetof(MeshVertex, bones),
-         D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"BLENDWEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(MeshVertex, weights),
-         D3D11_INPUT_PER_VERTEX_DATA, 0}};
-    if (!Check(m_device->CreateInputLayout(elements, 4, vs->GetBufferPointer(), vs->GetBufferSize(),
-                                           m_meshLayout.GetAddressOf()),
-               L"Mesh layout"))
-        return false;
-
-    D3D11_BUFFER_DESC constants{};
-    constants.ByteWidth = sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4);
-    constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    constants.Usage = D3D11_USAGE_DEFAULT;
-    if (!Check(m_device->CreateBuffer(&constants, nullptr, m_objectConstants.GetAddressOf()),
-               L"Object constants"))
-        return false;
-
-    constants.ByteWidth = 128 * sizeof(DirectX::XMFLOAT4X4);
-    if (!Check(m_device->CreateBuffer(&constants, nullptr, m_skinConstants.GetAddressOf()),
-               L"Skin constants"))
-        return false;
-
-    D3D11_RASTERIZER_DESC rasterizer{};
-    rasterizer.FillMode = D3D11_FILL_SOLID;
-    rasterizer.CullMode = D3D11_CULL_NONE;
-    rasterizer.DepthClipEnable = TRUE;
-    return Check(m_device->CreateRasterizerState(&rasterizer, m_meshRasterizer.GetAddressOf()),
-                 L"Mesh rasterizer");
-}
-
-
-// 기존 GPU 메시가 있으면 재사용
-// 없으면 CPU 정점·인덱스로 GPU 버퍼를 생성하고 캐시에 저장
-D3D11Renderer::GpuMesh* D3D11Renderer::Upload(const std::shared_ptr<const MeshData>& mesh)
-{
-    if (!mesh || mesh->vertices.empty() || mesh->indices.empty())
-        return nullptr;
-
-    if (mesh->vertices.size() > UINT_MAX / sizeof(MeshVertex) ||
-        mesh->indices.size() > UINT_MAX / sizeof(unsigned))
-        return nullptr;
-
-    if (std::any_of(mesh->indices.begin(), mesh->indices.end(),
-                    [&](unsigned index) { return index >= mesh->vertices.size(); }))
-        return nullptr;
-
-    auto found = m_meshes.find(mesh.get());
-    if (found != m_meshes.end() && !found->second.source.expired())
-        return &found->second;
-
-    GpuMesh gpu;
-    gpu.source = mesh;
-    gpu.count = static_cast<UINT>(mesh->indices.size());
-    D3D11_BUFFER_DESC buffer{};
-    buffer.Usage = D3D11_USAGE_IMMUTABLE;
-    buffer.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    buffer.ByteWidth = static_cast<UINT>(mesh->vertices.size() * sizeof(MeshVertex));
-    D3D11_SUBRESOURCE_DATA data{};
-    data.pSysMem = mesh->vertices.data();
-    if (!Check(m_device->CreateBuffer(&buffer, &data, gpu.vertices.GetAddressOf()),
-               L"Upload vertices"))
-        return nullptr;
-
-    buffer.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    buffer.ByteWidth = static_cast<UINT>(mesh->indices.size() * sizeof(unsigned));
-    data.pSysMem = mesh->indices.data();
-    if (!Check(m_device->CreateBuffer(&buffer, &data, gpu.indices.GetAddressOf()),
-               L"Upload indices"))
-        return nullptr;
-
-    return &m_meshes.insert_or_assign(mesh.get(), std::move(gpu)).first->second;
+    return true;
 }
 
 
@@ -378,146 +214,88 @@ D3D11Renderer::GpuMesh* D3D11Renderer::Upload(const std::shared_ptr<const MeshDa
 // 크기가 같으면 기존 자원 재사용
 bool D3D11Renderer::PrepareSceneView(std::uint32_t width, std::uint32_t height)
 {
+    if (!m_renderer)
+        return false;
+
     width = std::clamp(width, 1u, 8192u);
     height = std::clamp(height, 1u, 8192u);
-    if (m_sceneView && width == m_sceneWidth && height == m_sceneHeight)
-        return true;
-
-    D3D11_TEXTURE2D_DESC desc{};
-    desc.Width = width;
-    desc.Height = height;
-    desc.MipLevels = desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    ComPtr<ID3D11Texture2D> color, depth;
-    ComPtr<ID3D11RenderTargetView> target;
-    ComPtr<ID3D11ShaderResourceView> view;
-    ComPtr<ID3D11DepthStencilView> depthView;
-    if (!Check(m_device->CreateTexture2D(&desc, nullptr, &color), L"Scene color") ||
-        !Check(m_device->CreateRenderTargetView(color.Get(), nullptr, &target), L"Scene target") ||
-        !Check(m_device->CreateShaderResourceView(color.Get(), nullptr, &view), L"Scene view"))
+    m_renderer->SetSceneTarget(width, height);
+    if (!m_renderer->IsOffscreen())
+    {
+        m_sceneView = nullptr;
         return false;
+    }
 
-    desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-    if (!Check(m_device->CreateTexture2D(&desc, nullptr, &depth), L"Scene depth") ||
-        !Check(m_device->CreateDepthStencilView(depth.Get(), nullptr, &depthView),
-               L"Scene depth view"))
-        return false;
-
-    // 별도 색상·깊이 텍스처와 View를 준비
-    m_sceneTarget = std::move(target);
-    m_sceneView = std::move(view);
-    m_sceneDepth = std::move(depthView);
-
-    m_sceneWidth = width;
-    m_sceneHeight = height;
-    return true;
+    // ImGui 가 읽는 SRV. 텍스처가 다시 만들어지면 이전 SRV 는 사라지므로 매번 받아 둠.
+    m_sceneView = reinterpret_cast<ID3D11ShaderResourceView*>(
+        static_cast<std::uintptr_t>(m_d3d->GetImGuiTextureId(m_renderer->GetSceneTexture())));
+    return m_sceneView != nullptr;
 }
 
 
 /*
- → GPU 자원 준비
- → 그리기 명령
- → 에디터 UI 출력
- → Present
+ → BeginFrame
+ → 그림자·메인 패스 (Renderer::Render)
+ → UI 패스: 에디터 UI 출력
+ → EndFrame (Present)
 */
 bool D3D11Renderer::RenderScene(const RenderFrame& frame, bool verifyFrame,
                                 std::uint64_t* pixelHash)
 {
-    if (!m_renderTarget || !m_depth)
+    if (!m_rhi || !m_renderer || !m_rhi->GetBackBuffer().IsValid() ||
+        !m_rhi->GetDepthBuffer().IsValid())
         return false;
 
-    std::erase_if(m_meshes, [](const auto& entry) { return entry.second.source.expired(); });
-    ID3D11ShaderResourceView* empty = nullptr;
-    m_context->PSSetShaderResources(0, 1, &empty);
-    ID3D11RenderTargetView* target = m_sceneTarget ? m_sceneTarget.Get() : m_renderTarget.Get();
-    auto* depth = m_sceneDepth ? m_sceneDepth.Get() : m_depth.Get();
-    m_context->OMSetRenderTargets(1, &target, depth);
-    constexpr float background[] = {.025f, .10f, .18f, 1};
-    m_context->ClearRenderTargetView(target, background);
-    m_context->ClearDepthStencilView(depth, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1, 0);
-    D3D11_VIEWPORT viewport{0,
-                            0,
-                            static_cast<float>(m_sceneTarget ? m_sceneWidth : m_width),
-                            static_cast<float>(m_sceneTarget ? m_sceneHeight : m_height),
-                            0,
-                            1};
-    m_context->RSSetViewports(1, &viewport);
-    m_context->RSSetState(m_meshRasterizer.Get());
-    m_context->IASetInputLayout(m_meshLayout.Get());
-    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    m_context->VSSetShader(m_meshVs.Get(), nullptr, 0);
-    m_context->PSSetShader(m_meshPs.Get(), nullptr, 0);
-    ID3D11Buffer* constants = m_objectConstants.Get();
-    m_context->VSSetConstantBuffers(0, 1, &constants);
-    ID3D11Buffer* skin = m_skinConstants.Get();
-    m_context->VSSetConstantBuffers(1, 1, &skin);
+    const bool offscreen = m_renderer->IsOffscreen();
+    const bool wantPixels = pixelHash || !m_capturePath.empty();
+    bool ok = true;
 
-    for (const auto& item : frame.items)
-    {
-        auto* mesh = Upload(item.mesh);
-        if (!mesh)
-            return Check(E_INVALIDARG, L"Invalid render mesh");
+    m_rhi->BeginFrame();
+    m_renderer->Render(frame);
+    if (verifyFrame && offscreen && !VerifySceneView())
+        ok = false;
 
-        if (!item.bones.empty())
-        {
-            if (item.bones.size() > 128)
-                return Check(E_INVALIDARG, L"Too many skin matrices");
-
-            std::array<DirectX::XMFLOAT4X4, 128> palette{};
-            std::copy(item.bones.begin(), item.bones.end(), palette.begin());
-            m_context->UpdateSubresource(skin, 0, nullptr, palette.data(), 0, 0);
-        }
-
-        struct Constants
-        {
-            DirectX::XMFLOAT4X4 wvp;
-            DirectX::XMFLOAT4 tint;
-        } data{};
-        DirectX::XMStoreFloat4x4(&data.wvp, DirectX::XMLoadFloat4x4(&item.world) *
-                                                DirectX::XMLoadFloat4x4(&frame.view) *
-                                                DirectX::XMLoadFloat4x4(&frame.projection));
-        data.tint = item.tint;
-        m_context->UpdateSubresource(constants, 0, nullptr, &data, 0, 0);
-        ID3D11Buffer* vertices = mesh->vertices.Get();
-        const UINT stride = sizeof(MeshVertex), offset = 0;
-        m_context->IASetVertexBuffers(0, 1, &vertices, &stride, &offset);
-        m_context->IASetIndexBuffer(mesh->indices.Get(), DXGI_FORMAT_R32_UINT, 0);
-        m_context->DrawIndexed(mesh->count, 0, 0);
-    }
-
-    if (m_sceneTarget)
-    {
-        target = m_renderTarget.Get();
-        m_context->OMSetRenderTargets(1, &target, nullptr);
-        m_context->ClearRenderTargetView(target, background);
-    }
-
+    m_renderer->BeginUIPass();
     if (m_overlay)
         m_overlay();
-    if (verifyFrame && !(m_sceneTarget ? VerifySceneView() : VerifyTriangleFrame()))
-        return false;
+    m_renderer->EndUIPass();
 
-    if (pixelHash && !ReadbackHash(*pixelHash))
-        return false;
+    if (wantPixels || (verifyFrame && !offscreen))
+        m_rhi->RequestBackBufferReadback();
+    m_rhi->EndFrame();
 
-    if (!pixelHash && !m_capturePath.empty())
+    std::vector<std::uint8_t> rgba;
+    std::uint32_t width = 0, height = 0;
+    const bool haveReadback = m_rhi->TakeReadbackResult(rgba, width, height);
+    if (verifyFrame && !offscreen)
     {
-        std::uint64_t hash = 0;
-        if (!ReadbackHash(hash))
-            return false;
+        if (!haveReadback || !LooksRendered(rgba.data(), std::size_t(width) * 4, width, height))
+            ok = Fail("Scene pixel verification") && ok;
     }
 
-    return Check(m_swapChain->Present(1, 0), L"Present scene");
+    if (wantPixels)
+    {
+        if (!haveReadback)
+            return Fail("Back buffer readback");
+        std::uint64_t hash = 0;
+        if (!AnalyzeBackBuffer(rgba, width, height, &hash))
+            ok = false;
+        if (pixelHash)
+            *pixelHash = hash;
+    }
+
+    return ok;
 }
 
 
+// 씬 뷰 텍스처를 읽어 무엇인가 그려졌는지 확인 (에디터 모드의 검증)
 bool D3D11Renderer::VerifySceneView()
 {
+    if (!m_sceneView)
+        return false;
+
     ComPtr<ID3D11Resource> source;
-    m_sceneTarget->GetResource(&source);
+    m_sceneView->GetResource(&source);
     ComPtr<ID3D11Texture2D> texture, readback;
     if (FAILED(source.As(&texture)))
         return false;
@@ -527,51 +305,29 @@ bool D3D11Renderer::VerifySceneView()
     desc.Usage = D3D11_USAGE_STAGING;
     desc.BindFlags = 0;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    if (!Check(m_device->CreateTexture2D(&desc, nullptr, &readback), L"Scene probe"))
-        return false;
+    desc.MiscFlags = 0;
+    auto* device = Device();
+    auto* context = Context();
+    if (FAILED(device->CreateTexture2D(&desc, nullptr, &readback)))
+        return Fail("Scene probe");
 
-    m_context->CopyResource(readback.Get(), texture.Get());
+    context->CopyResource(readback.Get(), texture.Get());
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (!Check(m_context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped), L"Scene probe map"))
-        return false;
+    if (FAILED(context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+        return Fail("Scene probe map");
 
-    unsigned visible = 0;
-
-    for (unsigned y = 0; y < desc.Height; ++y)
-        for (unsigned x = 0; x < desc.Width; ++x)
-        {
-            const auto* p =
-                static_cast<const unsigned char*>(mapped.pData) + y * mapped.RowPitch + x * 4;
-            if (unsigned(p[0]) + p[1] + p[2] > 150)
-                ++visible;
-        }
-    m_context->Unmap(readback.Get(), 0);
-    return visible > 16;
+    const bool visible = LooksRendered(static_cast<const unsigned char*>(mapped.pData),
+                                       mapped.RowPitch, desc.Width, desc.Height);
+    context->Unmap(readback.Get(), 0);
+    return visible || Fail("Scene view verification");
 }
 
 
-bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
+// 백버퍼 픽셀의 해시를 구하고, 요청이 있으면 BMP 로 저장
+bool D3D11Renderer::AnalyzeBackBuffer(const std::vector<std::uint8_t>& rgba, std::uint32_t width,
+                                      std::uint32_t height, std::uint64_t* hash)
 {
-    ComPtr<ID3D11Texture2D> backBuffer, readback;
-    if (!Check(m_swapChain->GetBuffer(0, IID_PPV_ARGS(backBuffer.GetAddressOf())), L"Probe buffer"))
-        return false;
-
-    D3D11_TEXTURE2D_DESC desc{};
-    backBuffer->GetDesc(&desc);
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.BindFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    desc.MiscFlags = 0;
-    if (!Check(m_device->CreateTexture2D(&desc, nullptr, readback.GetAddressOf()),
-               L"Probe staging"))
-        return false;
-
-    m_context->CopyResource(readback.Get(), backBuffer.Get());
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (!Check(m_context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped), L"Probe map"))
-        return false;
-
-    hash = 14695981039346656037ull;
+    std::uint64_t value = 14695981039346656037ull;
     unsigned visible = 0;
     std::ofstream capture;
     if (!m_capturePath.empty())
@@ -582,11 +338,11 @@ bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
         BITMAPFILEHEADER file{};
         file.bfType = 0x4d42;
         file.bfOffBits = sizeof(file) + sizeof(BITMAPINFOHEADER);
-        file.bfSize = file.bfOffBits + m_width * m_height * 4;
+        file.bfSize = file.bfOffBits + width * height * 4;
         BITMAPINFOHEADER info{};
         info.biSize = sizeof(info);
-        info.biWidth = static_cast<LONG>(m_width);
-        info.biHeight = -static_cast<LONG>(m_height);
+        info.biWidth = static_cast<LONG>(width);
+        info.biHeight = -static_cast<LONG>(height);
         info.biPlanes = 1;
         info.biBitCount = 32;
         info.biCompression = BI_RGB;
@@ -594,30 +350,24 @@ bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
         capture.write(reinterpret_cast<const char*>(&info), sizeof(info));
     }
 
-    for (unsigned y = 0; y < m_height; ++y)
+    for (std::size_t i = 0; i < std::size_t(width) * height; ++i)
     {
-        const auto* row = static_cast<const unsigned char*>(mapped.pData) + y * mapped.RowPitch;
-
-        for (unsigned x = 0; x < m_width; ++x)
+        const auto* pixel = rgba.data() + i * 4;
+        if (pixel[0] != 6 || pixel[1] != 26 || pixel[2] != 46)
+            ++visible;
+        for (unsigned c = 0; c < 4; ++c)
         {
-            const auto* pixel = row + x * 4;
-            if (pixel[0] != 6 || pixel[1] != 26 || pixel[2] != 46)
-                ++visible;
-            for (unsigned c = 0; c < 4; ++c)
-            {
-                hash ^= pixel[c];
-                hash *= 1099511628211ull;
-            }
+            value ^= pixel[c];
+            value *= 1099511628211ull;
+        }
 
-            if (capture.is_open())
-            {
-                const unsigned char bgra[] = {pixel[2], pixel[1], pixel[0], pixel[3]};
-                capture.write(reinterpret_cast<const char*>(bgra), 4);
-            }
+        if (capture.is_open())
+        {
+            const unsigned char bgra[] = {pixel[2], pixel[1], pixel[0], pixel[3]};
+            capture.write(reinterpret_cast<const char*>(bgra), 4);
         }
     }
 
-    m_context->Unmap(readback.Get(), 0);
     if (!m_capturePath.empty())
     {
         capture.flush();
@@ -627,75 +377,85 @@ bool D3D11Renderer::ReadbackHash(std::uint64_t& hash)
             return false;
     }
 
+    if (hash)
+        *hash = value;
     return visible > 16;
 }
 
 
+// --smoke-test: 삼각형 한 개만 RHI 로 그림
 bool D3D11Renderer::Render(bool verifyFrame)
 {
-    if (!m_renderTarget)
+    if (!m_rhi || !m_rhi->GetBackBuffer().IsValid())
         return false;
 
-    ID3D11RenderTargetView* target = m_renderTarget.Get();
-    m_context->OMSetRenderTargets(1, &target, nullptr);
-    constexpr float color[] = {0.025f, 0.10f, 0.18f, 1.0f};
-    m_context->ClearRenderTargetView(target, color);
+    RHI::CommandList& cmd = m_rhi->GetCommandList();
+    const TextureHandle backBuffer = m_rhi->GetBackBuffer();
 
-    D3D11_VIEWPORT viewport{};
-    viewport.Width = static_cast<float>(m_width);
-    viewport.Height = static_cast<float>(m_height);
-    viewport.MaxDepth = 1.0f;
-    m_context->RSSetViewports(1, &viewport);
+    PipelineStateDesc pipeline;
+    pipeline.vs = m_triangleVs;
+    pipeline.ps = m_trianglePs;
+    pipeline.vertexLayout.attributes[0] = {.semantic = VertexSemantic::Position,
+                                           .format = Format::R32G32B32_FLOAT,
+                                           .offset = static_cast<std::uint16_t>(offsetof(Vertex, position))};
+    pipeline.vertexLayout.attributes[1] = {.semantic = VertexSemantic::Color,
+                                           .format = Format::R32G32B32_FLOAT,
+                                           .offset = static_cast<std::uint16_t>(offsetof(Vertex, color))};
+    pipeline.vertexLayout.attributeCount = 2;
+    pipeline.vertexLayout.stride = sizeof(Vertex);
+    pipeline.rasterizer.cull = CullMode::None;
+    pipeline.depthStencil.depthEnable = false;
+    pipeline.dsvFormat = Format::Unknown;
+    const PipelineHandle handle = m_rhi->CreatePipeline(pipeline);
+    if (!handle.IsValid())
+        return Fail("삼각형 파이프라인 생성 실패");
 
-    ID3D11Buffer* vertexBuffer = m_vertexBuffer.Get();
-    const UINT stride = sizeof(Vertex);
-    const UINT offset = 0;
-    m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
-    m_context->IASetInputLayout(m_inputLayout.Get());
-    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0);
-    m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
-    m_context->Draw(3, 0);
-    if (verifyFrame && !VerifyTriangleFrame())
-        return false;
+    m_rhi->BeginFrame();
+    cmd.Barrier(backBuffer, ResourceState::Present, ResourceState::RenderTarget);
+    RenderPassDesc pass;
+    pass.colors[0].texture = backBuffer;
+    pass.colors[0].load = LoadOp::Clear;
+    pass.colors[0].srgbView = false;
+    std::copy(std::begin(kTriangleBackground), std::end(kTriangleBackground),
+              pass.colors[0].clearColor);
+    pass.colorCount = 1;
+    pass.debugName = "TrianglePass";
+    cmd.BeginRenderPass(pass);
+    cmd.SetPipelineState(handle);
+    cmd.SetVertexBuffer(m_triangleVertices);
+    cmd.Draw(3, 0);
+    cmd.EndRenderPass();
+    cmd.Barrier(backBuffer, ResourceState::RenderTarget, ResourceState::Present);
 
-    return Check(m_swapChain->Present(1, 0), L"Present");
+    if (verifyFrame)
+        m_rhi->RequestBackBufferReadback();
+    m_rhi->EndFrame();
+
+    if (!verifyFrame)
+        return true;
+
+    std::vector<std::uint8_t> rgba;
+    std::uint32_t width = 0, height = 0;
+    return m_rhi->TakeReadbackResult(rgba, width, height) &&
+           VerifyTriangleFrame(rgba, width, height);
 }
 
 
-bool D3D11Renderer::VerifyTriangleFrame()
+bool D3D11Renderer::VerifyTriangleFrame(const std::vector<std::uint8_t>& rgba,
+                                        std::uint32_t width, std::uint32_t height)
 {
     // Smoke test reads pixels before Present: issuing Draw alone does not prove visible output.
-    ComPtr<ID3D11Texture2D> backBuffer;
-    if (!Check(m_swapChain->GetBuffer(0, IID_PPV_ARGS(backBuffer.GetAddressOf())),
-               L"GetBuffer(verify)"))
-        return false;
+    if (rgba.size() < std::size_t(width) * height * 4 || width == 0 || height == 0)
+        return Fail("Triangle pixel verification: no readback");
 
-    D3D11_TEXTURE2D_DESC desc{};
-    backBuffer->GetDesc(&desc);
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.BindFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    desc.MiscFlags = 0;
-    ComPtr<ID3D11Texture2D> readback;
-    if (!Check(m_device->CreateTexture2D(&desc, nullptr, readback.GetAddressOf()),
-               L"CreateTexture2D(verify)"))
-        return false;
-
-    m_context->CopyResource(readback.Get(), backBuffer.Get());
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (!Check(m_context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped), L"Map(verify)"))
-        return false;
-
-    const auto* pixels = static_cast<const unsigned char*>(mapped.pData);
-    const auto* center = pixels + (m_height / 2) * mapped.RowPitch + (m_width / 2) * 4;
+    const auto* pixels = rgba.data();
+    const auto* center = pixels + (std::size_t(height / 2) * width + width / 2) * 4;
     const bool backgroundMatches = pixels[0] >= 4 && pixels[0] <= 8 && pixels[1] >= 24 &&
                                    pixels[1] <= 28 && pixels[2] >= 44 && pixels[2] <= 48;
     const bool triangleVisible = center[0] > 25 && center[1] > 25 && center[2] > 25 &&
                                  static_cast<unsigned>(center[0]) + center[1] + center[2] > 200;
-    m_context->Unmap(readback.Get(), 0);
     if (!backgroundMatches || !triangleVisible)
-        return Check(E_FAIL, L"Triangle pixel verification");
+        return Fail("Triangle pixel verification");
 
     OutputDebugStringW(L"[Nereides] Triangle/background pixel verification passed.\n");
     return true;
@@ -704,39 +464,26 @@ bool D3D11Renderer::VerifyTriangleFrame()
 
 void D3D11Renderer::Shutdown() noexcept
 {
-    if (m_context)
-    {
-        m_context->ClearState();
-        m_context->Flush();
-    }
+    if (m_renderer)
+        m_renderer->Shutdown();
+    m_renderer.reset();
 
-    m_meshes.clear();
-    m_skinConstants.Reset();
-    m_objectConstants.Reset();
-    m_meshLayout.Reset();
-    m_meshPs.Reset();
-    m_meshVs.Reset();
-    m_meshRasterizer.Reset();
-    m_sceneTarget.Reset();
-    m_sceneView.Reset();
-    m_sceneDepth.Reset();
-    m_sceneWidth = m_sceneHeight = 0;
-    m_depth.Reset();
-    m_renderTarget.Reset();
-    m_inputLayout.Reset();
-    m_pixelShader.Reset();
-    m_vertexShader.Reset();
-    m_vertexBuffer.Reset();
-    m_swapChain.Reset();
-    m_context.Reset();
-#if defined(_DEBUG)
-    if (m_device)
+    if (m_rhi)
     {
-        ComPtr<ID3D11Debug> debug;
-        if (SUCCEEDED(m_device.As(&debug)))
-            debug->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL | D3D11_RLDO_IGNORE_INTERNAL);
+        m_rhi->DestroyBuffer(m_triangleVertices);
+        m_rhi->DestroyShader(m_triangleVs);
+        m_rhi->DestroyShader(m_trianglePs);
     }
-#endif
-    m_device.Reset();
+    m_triangleVertices = BufferHandle{};
+    m_triangleVs = m_trianglePs = ShaderHandle{};
+    m_sceneView = nullptr;
+
+    // 장치 소멸자가 객체를 정리하고 Debug 빌드에서는 살아 있는 객체를 보고함.
+    m_d3d = nullptr;
+    m_rhi.reset();
+
+    if (m_comInitialized)
+        CoUninitialize();
+    m_comInitialized = false;
 }
 } // namespace nereides

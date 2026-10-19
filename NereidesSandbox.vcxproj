@@ -87,20 +87,34 @@
     <ClCompile Include="src\Core\Application.cpp" />
     <ClCompile Include="src\Core\Log.cpp" />
     <ClCompile Include="src\Data\SceneIO.cpp" />
-    <ClCompile Include="src\Editor\Editor.cpp" />
     <ClCompile Include="src\Editor\AssetBrowser.cpp" />
     <ClCompile Include="src\Editor\Console.cpp" />
+    <ClCompile Include="src\Editor\Editor.cpp" />
     <ClCompile Include="src\Graphics\D3D11Renderer.cpp" />
     <ClCompile Include="src\Graphics\RenderFrame.cpp" />
     <ClCompile Include="src\Graphics\TextureCache.cpp" />
     <ClCompile Include="src\Main.cpp" />
     <ClCompile Include="src\Platform\Win32Window.cpp" />
     <ClCompile Include="src\Presentation\Transition.cpp" />
-    <ClCompile Include="src\Resource\Model.cpp" />
-    <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Reflection\ComponentRegistry.cpp" />
-    <ClCompile Include="src\Tests\EngineTests.cpp" />
+    <ClCompile Include="src\Renderer\Renderer.cpp" />
+    <ClCompile Include="src\Renderer\RenderTestScene.cpp" />
+    <ClCompile Include="src\Renderer\SherlockSceneImport.cpp" />
+    <ClCompile Include="src\Renderer\TextureLoader.cpp" />
+    <ClCompile Include="src\Resource\Model.cpp" />
+    <ClCompile Include="src\RHI\Compat\SherlockLog.cpp" />
+    <ClCompile Include="src\RHI\Compat\SherlockPaths.cpp" />
+    <ClCompile Include="src\RHI\D3D11\D3D11CommandList.cpp" />
+    <ClCompile Include="src\RHI\D3D11\D3D11Convert.cpp" />
+    <ClCompile Include="src\RHI\D3D11\D3D11Device.cpp" />
+    <ClCompile Include="src\RHI\D3D11\PipelineState.cpp" />
+    <ClCompile Include="src\RHI\D3D11\PipelineStateCache.cpp" />
+    <ClCompile Include="src\RHI\DXBC\ShaderCompiler.cpp" />
+    <ClCompile Include="src\RHI\PipelineTypes.cpp" />
+    <ClCompile Include="src\RHI\RHI.cpp" />
+    <ClCompile Include="src\Scene\Scene.cpp" />
     <ClCompile Include="src\Tests\EditorWorkflowTests.cpp" />
+    <ClCompile Include="src\Tests\EngineTests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Animation\Timeline.h" />
@@ -111,25 +125,127 @@
     <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Time.h" />
     <ClInclude Include="src\Data\SceneIO.h" />
-    <ClInclude Include="src\Editor\Editor.h" />
     <ClInclude Include="src\Editor\AssetBrowser.h" />
     <ClInclude Include="src\Editor\Console.h" />
     <ClInclude Include="src\Editor\EditHistory.h" />
+    <ClInclude Include="src\Editor\Editor.h" />
     <ClInclude Include="src\Editor\EditorGeometry.h" />
     <ClInclude Include="src\Graphics\D3D11Renderer.h" />
-    <ClInclude Include="src\Graphics\MeshShaders.h" />
     <ClInclude Include="src\Graphics\RenderFrame.h" />
     <ClInclude Include="src\Graphics\TextureCache.h" />
     <ClInclude Include="src\Graphics\TriangleShaders.h" />
     <ClInclude Include="src\Platform\Win32Window.h" />
     <ClInclude Include="src\Presentation\Transition.h" />
+    <ClInclude Include="src\Reflection\ComponentRegistry.h" />
+    <ClInclude Include="src\Renderer\EmbeddedTextures.h" />
+    <ClInclude Include="src\Renderer\Light.h" />
+    <ClInclude Include="src\Renderer\Material.h" />
+    <ClInclude Include="src\Renderer\RenderComponents.h" />
+    <ClInclude Include="src\Renderer\Renderer.h" />
+    <ClInclude Include="src\Renderer\RenderTestScene.h" />
+    <ClInclude Include="src\Renderer\ShaderConstants.h" />
+    <ClInclude Include="src\Renderer\SherlockSceneImport.h" />
+    <ClInclude Include="src\Renderer\TextureLoader.h" />
+    <ClInclude Include="src\Renderer\VertexTypes.h" />
     <ClInclude Include="src\Resource\Model.h" />
+    <ClInclude Include="src\RHI\BindingTypes.h" />
+    <ClInclude Include="src\RHI\CommandList.h" />
+    <ClInclude Include="src\RHI\Compat\RHICommon.h" />
+    <ClInclude Include="src\RHI\Compat\SherlockLog.h" />
+    <ClInclude Include="src\RHI\Compat\SherlockPaths.h" />
+    <ClInclude Include="src\RHI\D3D11\D3D11CommandList.h" />
+    <ClInclude Include="src\RHI\D3D11\D3D11Common.h" />
+    <ClInclude Include="src\RHI\D3D11\D3D11Convert.h" />
+    <ClInclude Include="src\RHI\D3D11\D3D11Device.h" />
+    <ClInclude Include="src\RHI\D3D11\D3D11Resources.h" />
+    <ClInclude Include="src\RHI\D3D11\PipelineState.h" />
+    <ClInclude Include="src\RHI\D3D11\PipelineStateCache.h" />
+    <ClInclude Include="src\RHI\Device.h" />
+    <ClInclude Include="src\RHI\GraphicsConfig.h" />
+    <ClInclude Include="src\RHI\Handle.h" />
+    <ClInclude Include="src\RHI\PipelineTypes.h" />
+    <ClInclude Include="src\RHI\RenderPassTypes.h" />
+    <ClInclude Include="src\RHI\ResourceDesc.h" />
+    <ClInclude Include="src\RHI\ResourcePool.h" />
+    <ClInclude Include="src\RHI\RHI.h" />
+    <ClInclude Include="src\RHI\ShaderCompiler.h" />
     <ClInclude Include="src\Sandbox\MoveComponent.h" />
     <ClInclude Include="src\Scene\Scene.h" />
-    <ClInclude Include="src\Reflection\ComponentRegistry.h" />
     <ClInclude Include="src\Tests\EngineTests.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 빌드가 fxc로 .cso를 만들어 exe 옆 Shaders\ 에 둔다. 런타임은 .cso를 우선 로드하고, Debug 빌드에서 소스 .hlsl이 더 새로우면 런타임 컴파일로 대체하며 파일 변경을 감시해 핫리로드한다.
+         리플렉션에 쓰므로 /Qstrip_reflect 는 켜지 않는다. Skinned* 는 같은 소스를 #include 하는 얇은 파일이다(.cso 이름이 파일 이름을 따르므로). -->
+    <FxCompile Include="Shaders\BasicVertexShader.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VS_Main</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\SkinnedVertexShader.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VS_Skinned</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\BasicPixelShader.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PS_Main</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\ShadowVertexShader.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VS_Shadow</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\ShadowSkinnedVertexShader.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VS_ShadowSkinned</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\SkyboxVertexShader.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VS_Sky</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\SkyboxPixelShader.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PS_Sky</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <None Include="Shaders\Common.hlsli" />
   </ItemGroup>
   <Import Project="Dependencies.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- fxc는 출력 폴더를 만들어 주지 않는다. -->
+  <Target Name="EnsureShaderOutputDir" BeforeTargets="FxCompile">
+    <MakeDir Directories="$(OutDir)Shaders" />
+  </Target>
+  <!-- 소스 .hlsl/.hlsli 사본도 exe 옆에 둔다. .cso가 없을 때의 런타임 컴파일 폴백과 소스 트리가 없는 환경(배포)에서의 핫리로드 대상이다. -->
+  <Target Name="CopyShaderSources" AfterTargets="Build">
+    <ItemGroup>
+      <ShaderSourceFiles Include="$(MSBuildProjectDirectory)\Shaders\*.hlsl;$(MSBuildProjectDirectory)\Shaders\*.hlsli" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ShaderSourceFiles)" DestinationFolder="$(OutDir)Shaders" SkipUnchangedFiles="true" />
+  </Target>
   <ImportGroup Label="ExtensionTargets" />
-</Project>
+</Project>

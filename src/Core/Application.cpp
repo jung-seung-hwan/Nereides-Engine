@@ -5,6 +5,8 @@
 #include <string>
 #include <algorithm>
 #include <numeric>
+#include <cstdlib>
+#include <string_view>
 #include <psapi.h>
 
 namespace nereides
@@ -31,6 +33,15 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
 
     if (!m_renderer.Initialize(m_window.Handle(), m_window.Width(), m_window.Height()))
         return 1;
+
+    // 성능 측정에서 NEREIDES_VSYNC=0 이면 수직 동기화를 꺼 프레임 비용을 그대로 잼
+    if (options.benchmark)
+    {
+        char vsync[8] = {};
+        size_t length = 0;
+        if (getenv_s(&length, vsync, "NEREIDES_VSYNC") == 0 && std::string_view(vsync) == "0")
+            m_renderer.SetVSync(false);
+    }
 
     Log::Write(LogLevel::Info, "Application initialized");
 

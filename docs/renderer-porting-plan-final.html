@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sherlock 렌더러 포팅 최종 계획</title>
+<style>
+:root { --bg:#f6f5f1; --paper:#fff; --ink:#1d1f24; --ink2:#4a505c; --ink3:#8a909c; --line:#d9dce3; --fill:#f1f3f7; --accent:#1d5fbf; --accent-bg:#e4ecf8; --warn:#a8620a; --warn-bg:#fdf3e2; --bad:#b3261e; --bad-bg:#fbe9e7; --ok:#1e7a46; --ok-bg:#e3f4ea; }
+@media (prefers-color-scheme: dark) { :root { --bg:#101216; --paper:#181b21; --ink:#e8eaee; --ink2:#aab0bb; --ink3:#6f7683; --line:#2b303a; --fill:#1f232b; --accent:#6ea8ff; --accent-bg:#16305a; --warn:#f0b35a; --warn-bg:#3a2a10; --bad:#ff8a80; --bad-bg:#3d1a17; --ok:#6fd49a; --ok-bg:#143626; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15.5px/1.75 -apple-system,"Segoe UI","Malgun Gothic",Roboto,sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; }
+header, section { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:22px 26px; margin-bottom:18px; }
+h1 { margin:0 0 6px; font-size:26px; } h2 { margin:0 0 12px; font-size:21px; padding-bottom:8px; border-bottom:1px solid var(--line); } h3 { margin:22px 0 6px; font-size:16.5px; }
+p { margin:8px 0; } ul, ol { padding-left:22px; } li { margin:4px 0; }
+code { font:13.5px/1.5 ui-monospace,Consolas,monospace; background:var(--fill); padding:1px 5px; border-radius:4px; }
+table { border-collapse:collapse; width:100%; margin:10px 0; font-size:14px; display:block; overflow-x:auto; }
+th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; vertical-align:top; } th { background:var(--fill); white-space:nowrap; }
+.box { border-left:4px solid var(--accent); background:var(--accent-bg); padding:8px 14px; border-radius:0 8px 8px 0; margin:12px 0; }
+.box.warn { border-left-color:var(--warn); background:var(--warn-bg); }
+.box.ok { border-left-color:var(--ok); background:var(--ok-bg); }
+.tag { display:inline-block; font-size:12px; line-height:1.5; padding:0 7px; border-radius:10px; background:var(--fill); border:1px solid var(--line); color:var(--ink2); white-space:nowrap; }
+.tag.must { background:var(--bad-bg); color:var(--bad); border-color:var(--bad); }
+.tag.new { background:var(--warn-bg); color:var(--warn); border-color:var(--warn); }
+.tag.done { background:var(--ok-bg); color:var(--ok); border-color:var(--ok); }
+nav { margin-bottom:18px; font-size:14px; line-height:2; } nav a { margin-right:12px; color:var(--accent); text-decoration:none; white-space:nowrap; }
+.foot { color:var(--ink3); font-size:13px; }
+@media (max-width:700px) { header, section { padding:16px; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Sherlock 렌더러 포팅 최종 계획</h1>
+  <p>2026-10-19 · 협의 14건 결과와 기준 코드 재점검을 반영한 확정안입니다. 이전 초안(<code>renderer-porting-plan.html</code>)은 보존하고, 이 문서가 우선합니다. Sherlock은 별개 프로젝트로 유지하며 필요한 기능만 일방향으로 복사합니다.</p>
+  <p class="foot">기준: Nereides <code>main</code> 9d62f25 · Sherlock 작업 트리(HEAD 9cbe7f3 + 미커밋 36개 파일). 상태: <b>계획만 수립, 코드 변경 없음</b>. 일정(마일스톤·날짜)은 사용자 지시로 계획에서 제외했고, 작업 순서와 완료 기준만 정의합니다.</p>
+</header>
+<nav><a href="#base">1. 기준과 선행 조건</a><a href="#decide">2. 확정 결정</a><a href="#scope">3. 이식 범위</a><a href="#design">4. 설계 요점</a><a href="#steps">5. 작업 순서</a><a href="#verify">6. 검증</a><a href="#risk">7. 위험</a><a href="#open">8. 남은 항목</a><a href="#fix">9. 초안 정정</a></nav>
+
+<section id="base">
+<h2>1. 기준과 선행 조건</h2>
+<div class="box ok"><p><b>포팅은 가능합니다.</b> 입력 경계(<code>RenderFrame</code>), 좌표계·행렬 규약, 스키닝 기반(정점 bones/weights, 뼈 팔레트 128, <code>DrawItem::bones</code>)이 이미 갖춰져 있습니다. 부담은 RHI 이식, 셰이더 컴파일 체계, <code>Scene</code> 의존 제거입니다.</p></div>
+<table>
+<thead><tr><th>선행 조건</th><th>내용</th><th>상태</th></tr></thead>
+<tbody>
+<tr><td>Nereides 기준</td><td><code>feat/Renderer</code>(원격 b4aa969)를 main 9d62f25 기준으로 rebase하거나 새로 분기. <code>Enabled()/SetEnabled()</code>, <code>BeginPlay/EndPlay</code>, <code>ComponentRegistry</code>(<code>.vcxproj</code> +2줄) 반영 전제</td><td><span class="tag must">시작 전</span></td></tr>
+<tr><td>Sherlock 원본 고정</td><td>렌더러 미커밋 변경(그림자 셰이더 단일 반환, 통계 위치, 직교 스카이박스, <code>directxtk</code> 제거)을 포함한 작업 트리를 쓸 계획입니다. 변경이 커밋 전이라 흔들릴 수 있으므로 Sherlock 쪽에 커밋을 요청하고, 그 해시를 이 문서와 단계 문서에 기록합니다. 커밋 전에는 이식 시점 스냅샷의 파일별 날짜를 기록합니다</td><td><span class="tag must">시작 전</span></td></tr>
+<tr><td>사전 조율 공지</td><td><code>RenderFrame</code>, <code>.vcxproj</code>/<code>.filters</code>, <code>vcpkg.json</code>(<code>directxtex</code>), Present·해제 계약을 엔진 담당·프로젝트 파일 소유자에게 알립니다</td><td><span class="tag must">시작 전</span></td></tr>
+<tr><td>브랜치 이름</td><td>규칙은 <code>feat/Program_이니셜</code>, 현재는 <code>feat/Renderer</code>. 팀 확인 필요</td><td><span class="tag new">확인</span></td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="decide">
+<h2>2. 확정 결정 (협의 14건, 모두 제안안 채택)</h2>
+<table>
+<thead><tr><th>#</th><th>결정</th><th>계획에 미치는 영향</th></tr></thead>
+<tbody>
+<tr><td>Q1</td><td><code>MaterialData</code> 전체를 <code>RenderFrame</code>으로 전달</td><td><code>DrawItem</code>에 재질 필드 추가(baseColor, metallic, roughness, emissive, occlusionStrength, normalStrength, uvScale, alphaCutoff, doubleSided, wireframe, unlit, 텍스처 5종). 안정 키 필요</td></tr>
+<tr><td>Q2</td><td>파트 단위 유지, 캐시 키도 파트 단위</td><td>Sherlock의 서브메시 범위(indexStart/Count)를 쓰지 않고 파트당 <code>DrawItem</code> 하나로 옮김. 정렬 키 구조 단순화</td></tr>
+<tr><td>Q3</td><td>텍스처는 경로 전달, 렌더러가 DirectXTex로 로드·캐시</td><td><code>TextureLoader</code> 이식. 씬 임베드 이미지(<code>FindImage</code>) 경로는 이번 범위 밖 [아래 8장 참고]</td></tr>
+<tr><td>Q4</td><td>카메라 위치 필드 추가, 에디터 <code>ApplyView</code> 덮어쓰기 유지</td><td>미리보기 카메라가 필요하면 view/proj/pos를 한 벌 더 받음</td></tr>
+<tr><td>Q5</td><td>광원 배열·환경 핸들·clear color 추가, 그림자 광원은 첫 번째 방향광</td><td>광원 상한은 Sherlock과 같은 8개로 두고, 초과 시 로그. 렌더 쪽 광원 타입을 새로 정의</td></tr>
+<tr><td>Q6</td><td>단일 정점 포맷 유지 + 탄젠트 추가, 탄젠트는 로더에서 생성</td><td><code>MeshVertex</code>에 tangent(float4). <code>Model.cpp</code>에 <code>aiProcess_CalcTangentSpace</code> 추가. 정적/스킨 분리 포맷은 만들지 않음</td></tr>
+<tr><td>Q7</td><td>§6.1/§6.3의 뼈 데이터를 "기존 사용"으로 정정</td><td><code>DrawItem::bones</code> 재사용. 신규 구현은 그림자 VS 스키닝과 RHI 정점 의미 확장</td></tr>
+<tr><td>Q8</td><td><code>RenderScene</code>은 Present 없이 끝, Application이 UI 후 Present</td><td>Sherlock의 <code>BeginUIPass/EndUIPass</code> 구조와 맞음. <code>EndUIPass</code>가 통계를 채우므로 매 프레임 호출이 계약</td></tr>
+<tr><td>Q9</td><td>렌더러가 장치 소유, ImGui는 접근자 사용</td><td>장치 소유권 이전 단계가 단순해짐. Application 이전은 하지 않음</td></tr>
+<tr><td>Q10</td><td>핫리로드는 벽시계로 폴링</td><td>일시정지 중에도 리로드 동작. <code>RenderFrame::time</code>에 의존하지 않음</td></tr>
+<tr><td>Q11</td><td>1차는 단일 스레드, 비동기화는 후속</td><td>셰이더 컴파일·텍스처 디코딩은 동기 처리</td></tr>
+<tr><td>Q12</td><td>R04는 현재 동작으로 확정</td><td>0크기·최소화 시 Update/Render 건너뜀을 유지하고 문서에 확정 기록</td></tr>
+<tr><td>Q13</td><td>검증 기대값은 한 번 갱신</td><td>갱신 시점은 날짜가 아니라 "4단계(정적 메시 PBR) 완료 시점"</td></tr>
+<tr><td>Q14</td><td><code>directxtex</code> 추가 동의</td><td><code>.vcxproj</code> 파일 추가는 사전 조율 일정이 정해지지 않아 8장에 남김</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="scope">
+<h2>3. 이식 범위 (점검 결과 반영)</h2>
+<p>Sherlock 쪽은 모두 <code>C:\Users\User\Desktop\SherlockEngine\SherlockEngine\</code> 기준입니다.</p>
+<table>
+<thead><tr><th>영역</th><th>가져올 것</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>렌더러</td><td><code>Graphics/Renderer.h/.cpp</code>, <code>ShaderConstants.h</code>, <code>VertexTypes.h</code>, <code>TextureLoader.h/.cpp</code></td><td>최종 입력은 <code>RenderFrame</code>. <code>Scene</code>/<code>Camera</code> include 제거</td></tr>
+<tr><td>RHI (D3D11만)</td><td><code>Device.h</code>, <code>CommandList.h</code>, <code>PipelineTypes.h/.cpp</code>, <code>BindingTypes.h</code>, <code>RenderPassTypes.h</code>, <code>ResourceDesc.h</code>, <code>Handle.h</code>, <code>ResourcePool.h</code>, <code>GraphicsConfig.h</code>, <code>ShaderCompiler.h</code>(루트), <code>D3D11/</code>, <code>DXBC/</code></td><td><b>초안에서 빠졌던 것</b>: Handle, ResourcePool, GraphicsConfig, 루트 ShaderCompiler.h, PipelineTypes.cpp</td></tr>
+<tr><td>RHI 팩토리</td><td><code>RHI.h/.cpp</code></td><td><code>RHI.cpp:4, 37-42</code>의 <code>D3D12Device</code> 생성 분기를 제거해야 함</td></tr>
+<tr><td>셰이더</td><td><code>Shaders/</code> 6파일(Basic VS/PS, Shadow VS, Skybox VS/PS, <code>Common.hlsli</code>)</td><td><code>BasicPixelShader</code>와 <code>SkyboxVertexShader</code>는 <b>미커밋 최신본</b></td></tr>
+<tr><td>셰이더 빌드</td><td><code>.vcxproj</code>의 FxCompile 6개(ShaderModel 5.0)와 <code>CopyShaderSources</code> 대응</td><td>Nereides 쪽 현황은 미확인(8장)</td></tr>
+<tr><td>대체할 것</td><td><code>Core/Log</code>, <code>Core/Paths</code>, <code>Core/Profiler</code>, <code>SHERLOCK_API</code>(<code>EngineApi.h</code>)</td><td>Paths는 <code>ShaderCompiler</code>·<code>TextureLoader</code>도 사용. 범위가 Renderer 밖까지 넓음</td></tr>
+<tr><td>끊을 것</td><td><code>Scene.h</code>→<code>GameObject/CameraComponent/Behaviour/Transform</code> 체인, <code>Camera</code>, <code>Scene/Light.h</code>의 <code>LightData</code></td><td><code>LightData</code>(80B)는 렌더 쪽 타입으로 복사</td></tr>
+<tr><td>가져오지 않는 것</td><td>D3D12 백엔드, 오프스크린 에디터 타깃·카메라 미리보기·디버그 뷰(정리 단계에서 필요한 만큼만), glTF(cgltf) 로더</td><td>FBX(Assimp) 경로 유지</td></tr>
+<tr><td>Nereides 쪽 교체</td><td><code>MeshShaders.h</code>, <code>TriangleShaders.h</code>(문자열 셰이더)</td><td>파일 방식으로 통일</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="design">
+<h2>4. 설계 요점</h2>
+
+<h3>4.1 <code>RenderFrame</code> 확장</h3>
+<ul>
+  <li><code>DrawItem</code>: 월드 행렬은 값으로(계층 월드는 엔진에서 계산), 재질 데이터와 안정 키, 기존 <code>bones</code> 유지. 포인터 키(<code>Mesh*</code>/<code>Material*</code>) 정렬은 안정 ID 정렬로 바꿉니다. 그대로 두면 실행마다 순서가 달라집니다.</li>
+  <li><code>RenderFrame</code>: 카메라 위치, 광원 배열, 환경(스카이박스·IBL 이름·노출·톤매핑·앰비언트), clear color. 그림자 영역(중심·크기)은 Sherlock이 (0, 2, 0), 직교 60, 맵 2048²로 고정했으므로 파라미터로 노출합니다.</li>
+  <li><code>Scene</code> 의존이던 <code>InvalidateScene</code>은 구역 교체 시 렌더러 캐시를 비우는 명시적 호출로 바꿉니다.</li>
+  <li>새 렌더 관련 컴포넌트가 생기면 <code>ComponentRegistry</code>에 등록하고, 컴포넌트는 객체당 타입 하나만 붙일 수 있습니다. 정리 콜백(<code>OnDestroy</code>)은 <code>noexcept</code>이며 GPU 자원 해제는 렌더러가 소유합니다.</li>
+</ul>
+
+<h3>4.2 캐시와 수명</h3>
+<p>Nereides의 <code>weak_ptr</code> + <code>expired()</code> 정리 방식을 메시·재질 캐시에 모두 유지합니다. 주소 재사용으로 옛 GPU 버퍼가 돌아오는 사고를 막기 위해, 기존 객체 수정이 아니라 새 불변 데이터로 교체하는 테스트를 추가합니다.</p>
+
+<h3>4.3 스키닝 <span class="tag new">범위 정정</span></h3>
+<ul>
+  <li>이미 있음: 정점 bones/weights, 뼈 팔레트 128(127 + fallback), <code>DrawItem::bones</code>, 뼈 행렬 계산.</li>
+  <li>새로 필요: (a) 그림자 VS 스키닝(<code>ShadowVertexShader.hlsl:13-14</code>), (b) 별도 뼈 상수버퍼(b4)와 <code>Renderer.cpp:528-535</code>의 cbuffer 이름 목록·바인딩·해제 추가(자동 반영 아님), (c) <b>RHI 정점 의미 확장</b>: <code>VertexSemantic</code>에 BlendIndices/BlendWeight, <code>Format</code>에 <code>R32G32B32A32_UINT</code>를 추가하고 <code>D3D11Convert.cpp</code>에 매핑(속성 7개는 상한 8 이내).</li>
+  <li>그림자 패스도 같은 포즈를 읽도록 하고, 두 패스가 어긋나지 않는지 확인합니다.</li>
+</ul>
+
+<h3>4.4 행렬 규약</h3>
+<p>Sherlock 셰이더를 그대로 쓰므로 렌더러가 업로드 시 전치합니다(<code>RenderFrame</code>은 전치 안 된 <code>XMFLOAT4X4</code>). 뼈 행렬은 전치 업로드 또는 <code>row_major</code> 선언 중 하나로 통일하고, 첫 스키닝 모델에서 눈으로 확인합니다.</p>
+
+<h3>4.5 프레임 흐름과 UI 계약 (Q8, Q9)</h3>
+<ul>
+  <li>순서: <code>RenderScene</code>(그림자 → 메인) → 호스트의 <code>BeginUIPass</code> → ImGui → <code>EndUIPass</code> → Present.</li>
+  <li><code>EndUIPass</code>가 <code>renderPasses/barriers</code>를 채우므로 값은 한 프레임 늦게 보입니다. 호스트가 매 프레임 호출해야 하고, 이를 계약으로 문서화합니다.</li>
+  <li>렌더러가 <code>ID3D11Device*</code>/<code>ID3D11DeviceContext*</code> 접근자를 유지하고 ImGui가 사용합니다. 해제 순서는 Application 소멸자에서 <code>EndPlay</code> → 렌더러 해제 순으로 명시합니다.</li>
+</ul>
+
+<h3>4.6 셰이더와 경로</h3>
+<ul>
+  <li>컴파일은 <code>RHI/DXBC/ShaderCompiler.cpp</code>(<code>LoadOrCompile</code>, 128-171). Debug는 소스·<code>Common.hlsli</code>가 더 새로우면 컴파일, Release는 <code>.cso</code>를 쓰고 없으면 경고 후 런타임 컴파일로 폴백합니다.</li>
+  <li>핫리로드는 Debug에서만, 벽시계 0.5초 폴링, 감시 파일 6개.</li>
+  <li>경로는 Sherlock <code>Paths</code>(엔진 루트 마커 탐색)를 Nereides 규칙(실행 파일 기준 프로젝트 루트 또는 배포 <code>data</code>)으로 대체하고, <code>scripts/package.ps1</code>에 셰이더 복사를 추가합니다.</li>
+  <li>직교 투영: 렌더러는 projection 행렬만 쓰므로 Nereides가 직교를 필요로 할 때만 스카이박스 VS의 <code>proj._44</code> 분기를 씁니다. 현재 범위에서는 코드를 그대로 가져오되 사용 여부는 필수가 아닙니다.</li>
+</ul>
+
+<h3>4.7 정점·모델</h3>
+<p><code>MeshVertex</code>에 tangent(float4) 추가, 정점 색은 RGBA/RGB 중 하나로 통일(스킨 포맷도 같은 단일 포맷). 탄젠트가 0이어도 크래시는 없고 노멀맵만 틀어지므로(<code>SafeNormalize</code> 폴백 (1,0,0)) 로더 생성이 빠졌는지는 시각 검증으로 잡습니다.</p>
+
+<h3>4.8 스타일</h3>
+<p>옮긴 파일은 <code>clang-format</code>, BOM 제거, LF(`.vcxproj` 계열은 CRLF)로 즉시 정리합니다. Sherlock은 탭·BOM입니다.</p>
+</section>
+
+<section id="steps">
+<h2>5. 작업 순서</h2>
+<p>일정은 다루지 않으며, 단계 순서와 완료 기준만 정합니다. 각 단계는 빌드와 <code>scripts/verify.ps1</code>(Debug/Release) 통과 후 커밋하고, 단계 문서를 같은 커밋에 넣습니다.</p>
+<table>
+<thead><tr><th>#</th><th>단계</th><th>내용</th><th>완료 기준</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>사전 정리</td><td>1장의 선행 조건 처리: rebase, Sherlock 원본 고정, 공지, 브랜치 이름 확인</td><td>기준 해시 기록</td></tr>
+<tr><td>1</td><td>RHI 이식 (D3D11)</td><td>3장 RHI 목록, 팩토리에서 D3D12 제거, Log/Paths 어댑터 작성(RHI에는 Profiler·<code>SHERLOCK_API</code>가 없음. 두 가지 대체는 4단계 Renderer 이식 때). RHI는 기존 렌더러 옆에서 컴파일·링크만 하고 호출은 2단계에서 시작</td><td>Debug/Release 빌드 경고 0, 검증 모드 8종 통과 (완료, <code>docs/stages/12-renderer-rhi-port.md</code>)</td></tr>
+<tr><td>2</td><td>장치·Present 계약</td><td>Q8·Q9 적용: Application이 UI 후 Present, 렌더러가 장치 소유, 해제 순서 명시. 기존 unlit 경로로 확인</td><td><code>--scene-smoke-test</code>, <code>--editor-smoke-test</code>, <code>--resize-smoke-test</code>, <code>--presentation-smoke-test</code>, <code>--editor-resize-smoke-test</code> 통과</td></tr>
+<tr><td>3</td><td><code>RenderFrame</code> 확장</td><td>4.1 항목, <code>CollectRenderFrame</code> 수정, 탄젠트 생성, 안정 키. 엔진 담당과 함께 진행</td><td>메시 교체 테스트 통과</td></tr>
+<tr><td>4</td><td>정적 메시 PBR</td><td>Renderer·셰이더·TextureLoader 이식, 셰이더 빌드 설정, 경로 대체. 검증 기대값을 이 단계에서 한 번 갱신(Q13)</td><td>조명·재질·리사이즈 정상, 검증 갱신 완료</td></tr>
+<tr><td>5</td><td>스키닝</td><td>4.3: RHI 정점 의미 확장, 뼈 상수버퍼(b4), 메인·그림자 VS</td><td><code>--model-test</code>로 애니메이션 FBX 확인, 메인·그림자 포즈 일치</td></tr>
+<tr><td>6</td><td>그림자</td><td>구역 크기에 맞게 광원 투영 조정, 성능 측정(1280×720과 FHD)</td><td>성능 측정 기록 완료</td></tr>
+<tr><td>7</td><td>HUD·잔상·예고</td><td>신규 작업. 협업 대상 확인 필요</td><td>시연 요구 충족</td></tr>
+<tr><td>8</td><td>정리</td><td>에디터 오프스크린·카메라 미리보기·디버그 뷰를 필요한 만큼, 성능 기록, 변경 이유·영향·사용 예제·검증 장면 전달</td><td>단계 문서 완결</td></tr>
+<tr><td>9</td><td>후속 작업</td><td>환경(IBL·스카이박스)·톤매핑 보강(필요 시), 2D·페이드, 바다·비·안개</td><td>—</td></tr>
+</tbody>
+</table>
+<div class="box warn"><p><b>시연 필수 범위.</b> 초안은 "7번까지"라 쓰면서 HUD를 8번에 두어 모순이었습니다. 이 문서에서는 HUD가 7단계이므로 <b>시연 필수는 7단계까지</b>입니다. 8·9단계는 미룰 수 있습니다.</p></div>
+<div class="box"><p>RHI 정점 확장이 5단계의 선행이라 4단계가 끝나야 스키닝을 시작할 수 있습니다. 범위를 줄여야 하면 RHI를 D3D11 최소 경로(정적 메시·PBR·그림자)에 한정하는 안을 쓰고, 팀과 먼저 합의합니다.</p></div>
+</section>
+
+<section id="verify">
+<h2>6. 검증</h2>
+<ul>
+  <li>매 단계: 빌드, <code>scripts/verify.ps1</code>(Debug/Release), 모드 8종(<code>--engine-tests</code>, <code>--editor-workflow-test</code>, <code>--smoke-test</code>, <code>--scene-smoke-test</code>, <code>--editor-smoke-test</code>, <code>--presentation-smoke-test</code>, <code>--resize-smoke-test</code>, <code>--editor-resize-smoke-test</code>), <code>--model-test</code>. 이 작업 환경에서는 <code>verify.ps1</code>이 <code>Start-Process</code> 실행에서 실패하므로(기준선에서도 동일, <code>docs/stages/12-renderer-rhi-port.md</code> 참고) 같은 모드를 직접 실행해 확인합니다.</li>
+  <li>기존 기준: 픽셀 임계 <code>&gt; 150</code>(<code>D3D11Renderer.cpp:545</code>)와 pixelHash는 4단계에서 한 번 갱신합니다.</li>
+  <li>추가 테스트: 메시·재질 교체 시 캐시 정합, 탄젠트 유무, 뼈 행렬 방향(스키닝), 메인·그림자 포즈 일치, 광원 8개 초과 로그, 0크기 윈도우.</li>
+  <li>성능: RTX 3060 FHD 60FPS 목표. 기존 16.68ms는 VSync 켠 값이라 여유 판단 근거가 아니므로, 측정은 VSync를 끈 상태와 켠 상태를 모두 기록합니다.</li>
+</ul>
+</section>
+
+<section id="risk">
+<h2>7. 위험</h2>
+<table>
+<thead><tr><th>위험</th><th>증상</th><th>대응</th></tr></thead>
+<tbody>
+<tr><td>Sherlock 미커밋 변경 흔들림</td><td>이식한 셰이더·렌더러가 원본과 어긋남</td><td>0단계에서 커밋 요청과 해시 기록</td></tr>
+<tr><td>캐시 키</td><td>옛 메시가 다른 객체에 그려짐</td><td>3단계 메시 교체 테스트</td></tr>
+<tr><td>행렬 규약</td><td>뼈 뒤틀림·모델 뒤집힘</td><td>5단계 첫 모델에서 눈으로 확인</td></tr>
+<tr><td>RHI 이식 범위</td><td>팩토리·Handle·ResourcePool 등 누락으로 링크 실패</td><td>3장 목록 기준 이식, D3D12 분기 제거</td></tr>
+<tr><td>RHI 정점 확장</td><td>스키닝 입력 레이아웃 생성 실패</td><td>5단계 선행 작업으로 분리</td></tr>
+<tr><td>Scene 의존</td><td><code>Scene.h</code> 체인이 렌더 쪽에 딸려옴</td><td>include 제거를 4단계(Renderer 이식) 완료 조건에 포함</td></tr>
+<tr><td>Debug 셰이더 경고</td><td>X4000 오경고</td><td>미커밋 최신 셰이더 사용</td></tr>
+<tr><td>성능</td><td>PBR + IBL + 그림자가 임시 도형 측정보다 무거움</td><td>6단계에서 두 해상도 측정</td></tr>
+<tr><td>선행 단계 지연</td><td>1~4단계 지연이 스키닝 이후 단계에 전파</td><td>시연 필수는 7단계까지, 필요 시 RHI 범위 축소</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="open">
+<h2>8. 남은 항목 (결정 또는 확인 필요)</h2>
+<ul>
+  <li><b>Q14</b>: <code>NereidesSandbox.vcxproj</code> 변경의 사전 조율 일정이 정해지지 않았습니다.</li>
+  <li><b>Q3 후속</b>: 씬 임베드 이미지(FBX 임베디드 텍스처, <code>FindImage</code>) 처리는 경로 전달 방식으로는 해결되지 않습니다. 이번 범위에서 제외하고 후속으로 둘지 정해야 합니다.</li>
+  <li><b>Q5</b>: 광원 상한을 8개로 둔 것은 Sherlock 값을 따른 것이며, 합의된 숫자는 아닙니다.</li>
+  <li><b>COM 초기화</b>: Sherlock은 <code>AppBase.cpp:186</code>에서 초기화합니다. Nereides는 <code>Application.cpp</code>에 없고, 다른 곳(Main.cpp 등)에서 하는지 미확인입니다. DirectXTex의 WIC 경로에 필요합니다.</li>
+  <li><b>셰이더 빌드</b>: <code>NereidesSandbox.vcxproj</code>에 FxCompile 항목이 있는지 미확인입니다(없을 것으로 추정).</li>
+  <li><b>문서 일치</b>: "기술검토서 v1.6"이 어느 문서인지(Nereides <code>docs/technical-review.md</code>와 이름 중복), <code>codex/engine-foundation</code> 삭제 여부.</li>
+  <li><b>읽지 않은 것</b>: Sherlock <code>Transform.h</code>, <code>Scene.cpp</code>, <code>Profiler.cpp</code>, <code>SkyboxPixelShader.hlsl</code> 본문, Nereides <code>Editor.cpp</code>, <code>Application.cpp</code> 전체, <code>scripts/verify.ps1</code>. 줄 번호는 점검 시점 기준이며 이식 시 다시 확인합니다.</li>
+</ul>
+</section>
+
+<section id="fix">
+<h2>9. 초안 대비 정정 사항</h2>
+<ul>
+  <li>스키닝은 "새로 구현"이 아니라 기존 기반 활용 + 그림자 VS·b4 버퍼·RHI 정점 확장입니다.</li>
+  <li>cbuffer 크기 검사는 자동이 아니라 <code>Renderer.cpp:528-535</code> 목록에 명시 추가입니다.</li>
+  <li>텍스처는 6개가 아니라 5개(albedo, normal, metallicRoughness, occlusion, emissive)이고 <code>normalStrength</code>가 필드 목록에 추가됩니다.</li>
+  <li><code>FindImage</code>는 389이며 <code>1119</code>는 Scene 포인터 전달 경로(1119 → 1339-1344 → 389)입니다.</li>
+  <li>노멀맵은 "탄젠트 없이 동작 안 함"이 아니라 탄젠트가 0이면 틀어짐입니다.</li>
+  <li>통계 리셋 계약은 <code>EndUIPass</code> 호출 전제로 바뀌었습니다.</li>
+  <li>PCF는 3×3 <code>SampleCmpLevelZero</code> 9탭, 톤매핑은 ACES Narkowicz 근사로 확인됐습니다.</li>
+  <li>이식 목록에 RHI 루트 파일, 팩토리 수정, Scene 헤더 체인, 셰이더 빌드, <code>TriangleShaders.h</code>를 추가했습니다.</li>
+  <li>Nereides 줄 번호는 main 9d62f25 기준으로 <code>Application.cpp</code>가 +3줄 밀렸고(예: <code>CollectRenderFrame</code> 218-220, <code>RenderScene</code> 226), 스모크 플래그에 <code>--presentation-smoke-test</code>, <code>--editor-resize-smoke-test</code>를 추가했습니다.</li>
+  <li><code>feat/Renderer</code>는 main과 같은 커밋이 아니라 b4aa969에서 4커밋 뒤처져 있습니다.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

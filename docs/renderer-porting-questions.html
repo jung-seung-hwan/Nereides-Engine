@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>렌더러 포팅 협의 질문지</title>
+<style>
+:root{--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--card:#fff;--line:#e7e5e4;--acc:#2563eb;--rec:#16a34a;--recbg:#f0fdf4}
+@media (prefers-color-scheme:dark){:root{--bg:#171513;--fg:#f5f5f4;--muted:#a8a29e;--card:#211e1b;--line:#38332f;--acc:#60a5fa;--rec:#4ade80;--recbg:#14281c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 system-ui,"Malgun Gothic",sans-serif}
+main{max-width:820px;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:26px;margin:0 0 6px}
+.sub{color:var(--muted);margin:0 0 28px}
+h2{font-size:18px;margin:36px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+.q{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:0 0 14px}
+.q h3{font-size:15.5px;margin:0 0 4px}
+.q h3 span{color:var(--acc);margin-right:6px}
+.ctx{color:var(--muted);font-size:13.5px;margin:0 0 10px}
+.q label{display:block;padding:7px 10px;border-radius:7px;cursor:pointer;margin:2px 0}
+.q label:hover{background:var(--bg)}
+.q label.rec{background:var(--recbg)}
+.tag{font-size:11.5px;font-weight:600;color:var(--rec);border:1px solid var(--rec);border-radius:99px;padding:0 7px;margin-left:6px;white-space:nowrap}
+textarea{width:100%;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg);font:inherit;min-height:44px;resize:vertical}
+ul.notes{padding-left:20px}
+code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:13px}
+footer{color:var(--muted);font-size:13px;margin-top:40px}
+</style>
+</head>
+<body>
+<main>
+<h1>렌더러 포팅 협의 질문지</h1>
+<p class="sub">대상: <code>docs/renderer-porting-plan.html</code> · Sherlock 렌더러 → Nereides 포팅 · <span class="tag" style="margin:0">제안</span>은 이견이 없으면 그대로 진행하자는 기본값입니다.</p>
+
+<h2>A. 데이터 계약 (RenderFrame)</h2>
+
+<div class="q"><h3><span>Q1</span>PBR 재질을 어디까지 넘길까요?</h3>
+<p class="ctx"><code>Model.cpp:459</code>는 현재 <code>baseColor</code>만 <code>DrawItem::tint</code>로 넘김. <code>MaterialData</code>에는 텍스처 이름 2개가 있음.</p>
+<label class="rec"><input type="radio" name="q1"> <code>MaterialData</code> 전체를 넘긴다 (텍스처 슬롯, metallic/roughness 포함)<span class="tag">제안</span></label>
+<label><input type="radio" name="q1"> 포팅 쪽 재질 캐시가 모델 로드 시점에 직접 읽는다</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q2</span>서브메시를 어떻게 표현할까요?</h3>
+<p class="ctx">Nereides는 파트당 <code>MeshData</code> 하나(indexStart 없음), Sherlock은 indexStart/Count 범위.</p>
+<label class="rec"><input type="radio" name="q2"> Nereides의 파트 단위 유지, 캐시 키도 파트 단위<span class="tag">제안</span></label>
+<label><input type="radio" name="q2"> indexStart/Count 방식으로 변경</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q3</span>텍스처는 어떤 형태로 전달할까요?</h3>
+<p class="ctx">현재 Nereides는 텍스처 이름만 있고 로드하지 않음. (문서 §6.1 안 a/b)</p>
+<label class="rec"><input type="radio" name="q3"> 경로를 넘기고 렌더러가 DirectXTex로 로드·캐시<span class="tag">제안</span></label>
+<label><input type="radio" name="q3"> 엔진이 디코딩한 데이터를 넘긴다</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q4</span>카메라와 에디터 뷰 계약은?</h3>
+<p class="ctx"><code>RenderFrame</code>에는 view/projection만 있고 카메라 위치가 없음. 에디터는 <code>Application.cpp:219</code>의 <code>ApplyView(frame)</code>로 프레임을 직접 덮어씀.</p>
+<label class="rec"><input type="checkbox"> 카메라 위치 필드를 추가한다<span class="tag">제안</span></label>
+<label class="rec"><input type="checkbox"> 에디터 덮어쓰기는 일단 유지한다<span class="tag">제안</span></label>
+<label><input type="checkbox"> 별도 뷰 경로를 만든다</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q5</span>광원·환경·clear color는 어떻게 넘길까요?</h3>
+<p class="ctx">셋 다 현재 <code>RenderFrame</code>에 없음.</p>
+<label class="rec"><input type="checkbox"> 광원 배열, 환경(IBL/스카이박스) 핸들, clear color를 추가<span class="tag">제안</span></label>
+<label class="rec"><input type="checkbox"> 그림자 광원은 첫 번째 directional light<span class="tag">제안</span></label>
+<textarea placeholder="광원 수 상한: ____ 개 / 메모"></textarea></div>
+
+<div class="q"><h3><span>Q6</span>정점 포맷은 어떻게 할까요?</h3>
+<p class="ctx">Nereides <code>MeshVertex</code>는 정적/스킨 구분 없이 bones/weights를 항상 가짐. Sherlock은 64B(탄젠트 포함).</p>
+<label class="rec"><input type="radio" name="q6"> 단일 포맷 유지 + 탄젠트 추가<span class="tag">제안</span></label>
+<label><input type="radio" name="q6"> 정적/스킨 포맷 분리</label>
+<label class="rec"><input type="checkbox"> 탄젠트는 로더(Assimp)에서 생성<span class="tag">제안</span></label>
+<label><input type="checkbox"> 탄젠트는 렌더러에서 생성</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q7</span>뼈 데이터 중복 정의 정리</h3>
+<p class="ctx"><code>DrawItem::bones</code>가 이미 있는데 문서 §6.1/§6.3은 추가 항목처럼 적혀 있음.</p>
+<label class="rec"><input type="radio" name="q7"> §6.1/§6.3을 "기존 사용"으로 정정<span class="tag">제안</span></label>
+<label><input type="radio" name="q7"> 그대로 둔다</label>
+<textarea placeholder="메모"></textarea></div>
+
+<h2>B. 프레임 루프와 소유권</h2>
+
+<div class="q"><h3><span>Q8</span>Present와 UI 패스는 누가 호출할까요?</h3>
+<p class="ctx">Nereides는 <code>RenderScene</code> 안에서 overlay 후 <code>Present(1,0)</code>. Sherlock은 Render 밖에서 <code>BeginUIPass</code>/<code>EndUIPass</code>.</p>
+<label class="rec"><input type="radio" name="q8"> <code>RenderScene</code>은 Present 없이 끝, Application이 UI를 그린 뒤 Present<span class="tag">제안</span></label>
+<label><input type="radio" name="q8"> 지금처럼 <code>RenderScene</code> 안에서 모두 처리</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q9</span>D3D 장치 소유권을 옮길까요?</h3>
+<p class="ctx"><code>Device()</code>/<code>Context()</code> 접근자가 이미 있음 (<code>D3D11Renderer.h:37-45</code>).</p>
+<label class="rec"><input type="radio" name="q9"> 렌더러가 계속 소유, ImGui는 접근자 사용<span class="tag">제안</span></label>
+<label><input type="radio" name="q9"> Application으로 이동 (엔진 담당 결정)</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q10</span>핫리로드 폴링 시계는?</h3>
+<p class="ctx"><code>RenderFrame.time</code>은 <code>m_time.combat.elapsed</code>라 일시정지 때 멈춤.</p>
+<label class="rec"><input type="radio" name="q10"> 핫리로드에는 벽시계를 따로 사용<span class="tag">제안</span></label>
+<label><input type="radio" name="q10"> <code>RenderFrame.time</code> 사용</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q11</span>스레딩 정책은?</h3>
+<p class="ctx">입력~렌더가 모두 <code>Application.cpp</code> 루프의 단일 스레드. 문서에는 정책 없음.</p>
+<label class="rec"><input type="radio" name="q11"> 1차는 단일 스레드, 셰이더 컴파일·텍스처 디코딩 비동기화는 후속<span class="tag">제안</span></label>
+<label><input type="radio" name="q11"> 처음부터 백그라운드 처리</label>
+<textarea placeholder="메모"></textarea></div>
+
+<div class="q"><h3><span>Q12</span>최소화/0크기 정책은?</h3>
+<p class="ctx"><code>Application.cpp:102-112</code>에서 이미 Update와 Render를 건너뜀. 문서 R04는 "미정".</p>
+<label class="rec"><input type="radio" name="q12"> 현재 동작으로 R04를 확정<span class="tag">제안</span></label>
+<label><input type="radio" name="q12"> 다른 정책 (메모에 기입)</label>
+<textarea placeholder="메모"></textarea></div>
+
+<h2>C. 검증과 빌드</h2>
+
+<div class="q"><h3><span>Q13</span>검증 기준은 어떻게 갱신할까요?</h3>
+<p class="ctx">smoke-test 픽셀 임계(<code>D3D11Renderer.cpp:545</code>의 <code>&gt; 150</code>)와 pixelHash는 PBR/IBL 도입 후 값이 바뀜.</p>
+<label class="rec"><input type="radio" name="q13"> WR01 완료 시점에 한 번 갱신<span class="tag">제안</span></label>
+<label><input type="radio" name="q13"> 단계마다 갱신</label>
+<textarea placeholder="유지할 테스트 목록 / 담당자"></textarea></div>
+
+<div class="q"><h3><span>Q14</span>빌드 변경에 동의하시나요?</h3>
+<p class="ctx">현재 vcpkg: assimp, nlohmann-json, imgui(dx11/win32), imguizmo.</p>
+<label class="rec"><input type="checkbox"> <code>vcpkg.json</code>에 <code>directxtex</code> 추가<span class="tag">제안</span></label>
+<label><input type="checkbox"> <code>NereidesSandbox.vcxproj</code>에 RHI/셰이더 소스 추가</label>
+<textarea placeholder="프로젝트 파일 변경 조율 일정"></textarea></div>
+
+<h2>D. 문서 정정 요청</h2>
+<ul class="notes">
+<li>§6.3의 "VertexTypes.h 하나"가 Sherlock 기준인지 Nereides 기준인지 명시 (Nereides에는 해당 파일 없음).</li>
+<li>성능 수치 16.68ms는 VSync 켠 값(60Hz 상한)이라 여유 판단 근거로 부족. VSync 끄고 재측정 필요.</li>
+<li>"기술검토서 v1.6"이 어느 문서인지 확인 (Nereides <code>docs/technical-review.md</code>와 이름 중복).</li>
+<li>브랜치 <code>feat/Renderer</code> 원격 존재, <code>codex/engine-foundation</code> 삭제 여부 확인.</li>
+</ul>
+
+<footer>코드 위치는 문서 분석 중 확인된 값이며, 최종 반영 전 재확인이 필요합니다. 선택값은 이 페이지를 새로 고치면 초기화됩니다.</footer>
+</main>
+</body>
+</html>

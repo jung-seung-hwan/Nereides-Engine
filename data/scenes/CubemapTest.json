@@ -1,0 +1,625 @@
+{
+  "camera": 14,
+  "cameraSettings": {
+    "far": 1000.0,
+    "fov": 0.7853981852531433,
+    "near": 0.10000000149011612
+  },
+  "objects": [
+    {
+      "components": [
+        {
+          "enabled": true,
+          "path": "assets/models/DamagedHelmet/DamagedHelmet.glb",
+          "type": "model"
+        }
+      ],
+      "enabled": true,
+      "id": 1,
+      "name": "DamagedHelmet",
+      "parent": 0,
+      "position": [
+        0.0,
+        1.2999999523162842,
+        -1.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 1.0,
+          "roughness": 0.0,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            1.0,
+            0.765999972820282,
+            0.335999995470047,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 2,
+      "name": "Gold R0.0",
+      "parent": 0,
+      "position": [
+        -5.5,
+        5.599999904632568,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 1.0,
+          "roughness": 0.20000000298023224,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            1.0,
+            0.765999972820282,
+            0.335999995470047,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 3,
+      "name": "Gold R0.2",
+      "parent": 0,
+      "position": [
+        -3.299999952316284,
+        5.599999904632568,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 1.0,
+          "roughness": 0.4000000059604645,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            1.0,
+            0.765999972820282,
+            0.335999995470047,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 4,
+      "name": "Gold R0.4",
+      "parent": 0,
+      "position": [
+        -1.100000023841858,
+        5.599999904632568,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 1.0,
+          "roughness": 0.6000000238418579,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            1.0,
+            0.765999972820282,
+            0.335999995470047,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 5,
+      "name": "Gold R0.6",
+      "parent": 0,
+      "position": [
+        1.100000023841858,
+        5.599999904632568,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 1.0,
+          "roughness": 0.800000011920929,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            1.0,
+            0.765999972820282,
+            0.335999995470047,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 6,
+      "name": "Gold R0.8",
+      "parent": 0,
+      "position": [
+        3.299999952316284,
+        5.599999904632568,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 1.0,
+          "roughness": 1.0,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            1.0,
+            0.765999972820282,
+            0.335999995470047,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 7,
+      "name": "Gold R1.0",
+      "parent": 0,
+      "position": [
+        5.5,
+        5.599999904632568,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 0.0,
+          "roughness": 0.0,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            0.800000011920929,
+            0.07999999821186066,
+            0.05999999865889549,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 8,
+      "name": "Plastic R0.0",
+      "parent": 0,
+      "position": [
+        -5.5,
+        3.5,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 0.0,
+          "roughness": 0.20000000298023224,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            0.800000011920929,
+            0.07999999821186066,
+            0.05999999865889549,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 9,
+      "name": "Plastic R0.2",
+      "parent": 0,
+      "position": [
+        -3.299999952316284,
+        3.5,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 0.0,
+          "roughness": 0.4000000059604645,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            0.800000011920929,
+            0.07999999821186066,
+            0.05999999865889549,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 10,
+      "name": "Plastic R0.4",
+      "parent": 0,
+      "position": [
+        -1.100000023841858,
+        3.5,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 0.0,
+          "roughness": 0.6000000238418579,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            0.800000011920929,
+            0.07999999821186066,
+            0.05999999865889549,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 11,
+      "name": "Plastic R0.6",
+      "parent": 0,
+      "position": [
+        1.100000023841858,
+        3.5,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 0.0,
+          "roughness": 0.800000011920929,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            0.800000011920929,
+            0.07999999821186066,
+            0.05999999865889549,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 12,
+      "name": "Plastic R0.8",
+      "parent": 0,
+      "position": [
+        3.299999952316284,
+        3.5,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "enabled": true,
+          "metallic": 0.0,
+          "roughness": 1.0,
+          "sphere": {
+            "radius": 0.800000011920929,
+            "slices": 48,
+            "stacks": 24
+          },
+          "tint": [
+            0.800000011920929,
+            0.07999999821186066,
+            0.05999999865889549,
+            1.0
+          ],
+          "type": "sphere"
+        }
+      ],
+      "enabled": true,
+      "id": 13,
+      "name": "Plastic R1.0",
+      "parent": 0,
+      "position": [
+        5.5,
+        3.5,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [],
+      "enabled": true,
+      "id": 14,
+      "name": "Main Camera",
+      "parent": 0,
+      "position": [
+        0.0,
+        3.200000047683716,
+        -9.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "attenuation": [
+            1.0,
+            0.04500000178813934,
+            0.007499999832361937
+          ],
+          "color": [
+            1.0,
+            0.6200000047683716,
+            0.41999998688697815
+          ],
+          "enabled": true,
+          "innerConeCos": 0.9238795042037964,
+          "intensity": 1.2000000476837158,
+          "lightType": "directional",
+          "outerConeCos": 0.8660253882408142,
+          "range": 50.0,
+          "type": "light"
+        }
+      ],
+      "enabled": true,
+      "id": 15,
+      "name": "Directional Light",
+      "parent": 0,
+      "position": [
+        0.0,
+        10.0,
+        -10.0
+      ],
+      "rotation": [
+        0.2453904002904892,
+        2.0667052268981934,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "components": [
+        {
+          "ambientColor": [
+            0.029999999329447746,
+            0.029999999329447746,
+            0.029999999329447746
+          ],
+          "clearColor": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "enabled": true,
+          "exposure": 1.0,
+          "iblIntensity": 0.5,
+          "preset": "cubemapSample",
+          "toneMapping": true,
+          "type": "environment"
+        }
+      ],
+      "enabled": true,
+      "id": 16,
+      "name": "Environment",
+      "parent": 0,
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "player": 0,
+  "version": 1
+}
