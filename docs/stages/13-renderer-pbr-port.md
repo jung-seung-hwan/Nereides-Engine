@@ -98,3 +98,20 @@ Sherlock `Projects/CubemapTest/Assets/Scenes/Main.json`을 `data/render-test/Cub
 - 씬 구성: Main Camera(0, 3.2, -9, fov 45°), Directional Light, Environment, DamagedHelmet(`model`, 재질은 glb의 것), Gold/Plastic 구 12개.
 - 검증: `--engine-tests`의 `TestRenderSceneComponents`(Encode→Decode→Encode 동일, 재질·조명·환경이 `RenderFrame`에 반영, 조명 없는 씬은 기본값 유지)와 렌더 시험의 조명 방향 확인. Sherlock 캡처와 전체 화면 평균 차이 0.17/255.
 - 주의: 이 씬은 `assets/` 의 큐브맵·헬멧 파일이 있어야 제대로 보인다(`assets/**`는 git 제외, 공유 드라이브에서 받음).
+
+## HDR 렌더 타깃·톤 패스·후처리 반영 (2026-10-23)
+
+Sherlock에서 2b0f6a4 이후 추가된 e716094(HDR·톤매핑 패스)와 5fa4669(후처리 PP)를 옮겼다. 포팅 때 기준은 `2b0f6a4`였고, 그 뒤 Sherlock 변경은 RHI를 건드리지 않아 `src/RHI`는 그대로다.
+
+- 메인 패스는 선형 `R16G16B16A16_FLOAT` 텍스처(`m_hdrColor`)에 그린다. 메인·스카이 PSO의 RTV 포맷도 FP16이다. 노출·ACES는 `BasicPixelShader`/`SkyboxPixelShader`가 아니라 `TonemapPixelShader`가 하고, sRGB 인코딩은 톤 패스의 sRGB RTV가 한다.
+- 프레임 순서: Shadow → Main(HDR) → 블러·블룸(`RendererPost.cpp`, HDR 텍스처 제자리) → Tonemap(씬 뷰 텍스처 또는 백버퍼) → UI.
+- 크기: 에디터(오프스크린)는 씬 뷰 크기, 게임 모드는 `Renderer::SetOutputSize`로 받은 백버퍼 크기. `D3D11Renderer`가 `Initialize`/`Resize`에서 알려 준다.
+- 새 셰이더: `ScreenVertexShader`(풀스크린 삼각형), `TonemapPixelShader`, `PostPixelShader`(가우시안 블러·블룸). `NereidesSandbox.vcxproj`에 `FxCompile` 항목을 추가했다. 톤 패스의 색 효과(GreyScale)도 포함.
+- 설정: `PostProcessSettings`(`src/Renderer/PostProcessSettings.h`)가 `RenderEnvironment::post`로 들어온다. 씬에서는 `EnvironmentComponent`의 필드(`blurEnabled`, `blurRadius`, `bloomEnabled`, `bloomThreshold`, `bloomKnee`, `bloomIntensity`, `greyscale`)이며 인스펙터와 씬 파일에 자동으로 연결된다. 옛 씬 파일은 키가 없으므로 전부 꺼진 기본값이다.
+- Sherlock와 다른 점:
+  - PostParams 상수버퍼는 **b5**다. Sherlock은 b4인데 Nereides는 b4를 뼈 팔레트가 쓴다(`Common.hlsli`에 두 cbuffer가 같은 레지스터를 쓰면 안 되므로).
+  - 카메라 미리보기용 HDR·스크래치는 가져오지 않았다(미리보기 자체가 없음). `GpuProfileScope`(Profiler)도 없어 뺐다.
+  - 단계별 썸네일(`RequestPostCapture`/`GetPostStage`)은 렌더러 쪽 API까지만 옮겼고, Sherlock `DebugUI`의 "Post Stages" 창은 아직 에디터에 붙이지 않았다.
+- 검증: Debug·Release 빌드 경고·오류 0, 8개 모드와 `--model-test data/render-test/CubemapTest.json` 종료 코드 0. `--engine-tests`에 후처리 검사를 추가했다(블러·블룸·GreyScale이 화면을 바꾸고, 꺼 두면 이전과 같은 해시, 환경 컴포넌트 값이 `RenderFrame`에 전달됨).
+- 주의: 감마 검증용 `unlit` 재질도 이제 톤 패스를 거친다. 감마를 확인하려면 톤매핑을 끄고 노출 1에서 볼 것.
+

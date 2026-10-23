@@ -182,6 +182,17 @@ LoadedScene ImportSherlockScene(const std::filesystem::path& path, ModelCache& m
         environment.iblIntensity = found->value("iblIntensity", 1.f);
         environment.exposure = found->value("exposure", 1.f);
         environment.toneMapping = found->value("toneMapping", false);
+        // 2026/10/23: 후처리. 키가 없는 옛 장면은 전부 꺼진 기본값
+        if (const auto post = found->find("postProcess"); post != found->end() && post->is_object())
+        {
+            environment.blurEnabled = post->value("blurEnabled", environment.blurEnabled);
+            environment.blurRadius = post->value("blurRadius", environment.blurRadius);
+            environment.bloomEnabled = post->value("bloomEnabled", environment.bloomEnabled);
+            environment.bloomThreshold = post->value("bloomThreshold", environment.bloomThreshold);
+            environment.bloomKnee = post->value("bloomKnee", environment.bloomKnee);
+            environment.bloomIntensity = post->value("bloomIntensity", environment.bloomIntensity);
+            environment.greyscale = post->value("greyscale", environment.greyscale);
+        }
     }
     return result;
 }

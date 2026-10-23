@@ -12,6 +12,7 @@
 //   b2 Lights    — 프레임에 한 번(조명이 바뀔 때만이어도 됨).           PS만.
 //   b3 Material  — 재질마다(4단계). 기본색·금속성·거칠기·발광·UV 배율·노멀 맵 세기·AO 세기. VS(uvScale)와 PS.
 //   b4 Bones     — Nereides 추가. 스키닝 메시의 뼈 행렬 128개. VS만.
+//   b5 PostParams — 후처리(톤 패스·블러·블룸) 파라미터. PS만. 후처리 셋에서만 바인딩
 // 예전에는 b0 하나(world·view·proj·wvp, 320B)를 드로우마다 통째로 올렸음.
 //
 // 패킹 규칙 (HLSL "Packing Rules for Constant Variables"):
@@ -50,6 +51,9 @@ constexpr uint32_t kSRVSlotEnvironment = 9;  // t9 (프레임, 스카이박스 �
 constexpr uint32_t kSRVSlotIrradiance = 10;  // t10 (프레임, IBL 확산 조도 큐브)
 constexpr uint32_t kSRVSlotPrefiltered = 11; // t11 (프레임, IBL 반사 프리필터 큐브. 밉 = 거칠기)
 constexpr uint32_t kSRVSlotBrdfLut = 12;     // t12 (프레임, split-sum BRDF LUT 2D)
+constexpr uint32_t kSRVSlotSceneHdr = 13;    // t13 (후처리 셋, 후처리 패스의 입력 텍스처. 톤 패스는 HDR 씬, 블러·블룸은 앞 단계의 결과)
+constexpr uint32_t kCBSlotPostParams = 5;    // b5 (후처리 셋, 패스마다 올림). Nereides: b4 는 뼈 팔레트가 쓰므로 Sherlock 의 b4 에서 옮김
+constexpr uint32_t kSamplerSlotPost = 6;     // s6 (후처리 셋, 선형 Clamp. 블룸 축소·확대와 썸네일이 씀. 후처리 패스는 프레임 셋을 바인딩하지 않으므로 s4~s7 과 겹치지 않음)
 constexpr uint32_t kSamplerSlotMaterial = 0; // s0 (재질)
 constexpr uint32_t kSamplerSlotShadow = 4;   // s4 (프레임, 비교 샘플러)
 constexpr uint32_t kSamplerSlotEnvironment = 5; // s5 (프레임, 큐브맵용 선형 Clamp)
@@ -68,7 +72,24 @@ struct alignas(16) PerFrameConstants
 	// w = 환경 큐브가 있음(1) / 없음(0, ambientColor 로 대체)
 	DirectX::XMFLOAT4 environmentParams;
 	// 2026-10-08: 출력. x = 노출(최종 색에 곱함), y = ACES 톤매핑(1) / 끔(0), z = BRDF LUT(t12) 있음(1) / 해석적 근사(0), w = 미사용
+	// 2026/10/20 HDR: x, y 는 톤 패스(TonemapPixelShader)가 읽음. 톤 패스의 Layout_Post 가 이 b0 를 그대로 다시 씀.
 	DirectX::XMFLOAT4 outputParams;
+};
+
+// 2026/10/23: 후처리 패스 파라미터 (b5). 패스마다 올림 — 업로드 링을 쓰므로 프레임 안에서 여러 번 올려도 됨 (b0 가 미리보기에서 그렇게 함).
+// 톤 패스도 매 프레임 올리므로 효과가 전부 꺼져 있어도 D3D12 의 "이번 프레임에 갱신되지 않은 Dynamic CB" 경고가 나지 않음.
+struct alignas(16) PostParamsConstants
+{
+	// x = 모드 (PS_Post: 1 블러, 2 블룸 밝기 추출+축소, 3 축소, 4 확대), y,z = 블러 방향 (텍셀 단위, 가로 (1,0) / 세로 (0,1)), w = 미사용
+	DirectX::XMFLOAT4 pass;
+	// x = 시그마(픽셀), y = 반경(픽셀, 정수로 읽음), zw = 미사용
+	DirectX::XMFLOAT4 blur;
+	// x = 임계값, y = knee, z = 확대 결과에 곱할 배율 (축적 확대는 1, 마지막 합성은 intensity), w = 미사용
+	DirectX::XMFLOAT4 bloom;
+	// xy = 입력 텍스처 크기, zw = 출력 타깃 크기 (픽셀). 톤 패스는 Load 좌표를 xy/zw 비로 늘려 읽음 (썸네일 = 축소 출력)
+	DirectX::XMFLOAT4 view;
+	// x = GreyScale 양 (0..1), y = 1 이면 색 효과를 건너뜀 (단계별 썸네일의 "효과 전" 그림), zw = 미사용
+	DirectX::XMFLOAT4 grade;
 };
 
 struct alignas(16) PerObjectConstants
@@ -118,6 +139,8 @@ static_assert(IsValidConstantBufferSize(sizeof(PerObjectConstants)), "PerObjectC
 static_assert(IsValidConstantBufferSize(sizeof(LightConstants)), "LightConstants 는 16의 배수여야 함");
 static_assert(IsValidConstantBufferSize(sizeof(MaterialConstants)), "MaterialConstants 는 16의 배수여야 함");
 static_assert(IsValidConstantBufferSize(sizeof(BoneConstants)), "BoneConstants 는 16의 배수여야 함");
+static_assert(IsValidConstantBufferSize(sizeof(PostParamsConstants)), "PostParamsConstants 는 16의 배수여야 함");
+static_assert(sizeof(PostParamsConstants) == 80, "PostParamsConstants: 16 * 5");
 
 static_assert(sizeof(PerFrameConstants) == 336, "PerFrameConstants: 64*4 + 16 * 5");
 static_assert(offsetof(PerFrameConstants, environmentParams) == 304, "PerFrameConstants.environmentParams");

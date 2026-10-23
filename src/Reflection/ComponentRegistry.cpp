@@ -166,6 +166,13 @@ ComponentRegistry& ComponentTypes()
              Property("iblIntensity", "IBL intensity", &EnvironmentComponent::iblIntensity, 0, 100),
              Property("exposure", "Exposure", &EnvironmentComponent::exposure, 0, 100),
              Property("toneMapping", "Tone mapping", &EnvironmentComponent::toneMapping),
+             Property("blurEnabled", "Gaussian blur", &EnvironmentComponent::blurEnabled),
+             Property("blurRadius", "Blur radius (px @720p)", &EnvironmentComponent::blurRadius, 0.5f, 32),
+             Property("bloomEnabled", "Bloom", &EnvironmentComponent::bloomEnabled),
+             Property("bloomThreshold", "Bloom threshold", &EnvironmentComponent::bloomThreshold, 0, 8),
+             Property("bloomKnee", "Bloom knee", &EnvironmentComponent::bloomKnee, 0, 1),
+             Property("bloomIntensity", "Bloom intensity", &EnvironmentComponent::bloomIntensity, 0, 4),
+             Property("greyscale", "Greyscale", &EnvironmentComponent::greyscale, 0, 1),
              Property("ambientColor", "Ambient color", &EnvironmentComponent::ambientColor, 0, 100),
              Property("clearColor", "Clear color (linear)", &EnvironmentComponent::clearColor, 0,
                       1)}));

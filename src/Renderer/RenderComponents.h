@@ -35,6 +35,14 @@ public:
     float iblIntensity = 1;
     float exposure = 1;
     bool toneMapping = false;
+    // 2026/10/23: 후처리. 기본값은 PostProcessSettings 와 같음 (전부 꺼짐). 순서는 렌더러가 고정함.
+    bool blurEnabled = false;
+    float blurRadius = 4;
+    bool bloomEnabled = false;
+    float bloomThreshold = 1;
+    float bloomKnee = .5f;
+    float bloomIntensity = .5f;
+    float greyscale = 0;
     DirectX::XMFLOAT3 ambientColor{.12f, .12f, .12f}; // 환경 큐브가 없을 때의 환경광
     DirectX::XMFLOAT3 clearColor{0, 0, 0};            // 선형 색
 };

@@ -1,6 +1,7 @@
 #pragma once
 #include "Renderer/Light.h"
 #include "Renderer/Material.h"
+#include "Renderer/PostProcessSettings.h"
 #include "Scene/Scene.h"
 #include <array>
 #include <memory>
@@ -51,6 +52,7 @@ struct RenderEnvironment
     float exposure = 1.f;
     bool toneMapping = false;
     DirectX::XMFLOAT3 ambientColor{.12f, .12f, .12f}; // 환경 큐브가 없을 때의 환경광
+    PostProcessSettings post; // 2026/10/23: 후처리 (블러·블룸·GreyScale). 기본은 전부 꺼짐
 };
 
 // 카메라 정보와 전체 그리기 목록

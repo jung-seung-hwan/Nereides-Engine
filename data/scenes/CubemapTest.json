@@ -586,6 +586,12 @@
             0.029999999329447746,
             0.029999999329447746
           ],
+          "bloomEnabled": false,
+          "bloomIntensity": 0.5,
+          "bloomKnee": 0.5,
+          "bloomThreshold": 1.0,
+          "blurEnabled": false,
+          "blurRadius": 4.0,
           "clearColor": [
             0.0,
             0.0,
@@ -593,6 +599,7 @@
           ],
           "enabled": true,
           "exposure": 1.0,
+          "greyscale": 0.0,
           "iblIntensity": 0.5,
           "preset": "cubemapSample",
           "toneMapping": true,

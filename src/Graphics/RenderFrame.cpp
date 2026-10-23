@@ -67,6 +67,13 @@ void CollectLighting(const Scene& scene, RenderFrame& frame)
             target.iblIntensity = environment->iblIntensity;
             target.exposure = environment->exposure;
             target.toneMapping = environment->toneMapping;
+            target.post.blurEnabled = environment->blurEnabled;
+            target.post.blurRadius = environment->blurRadius;
+            target.post.bloomEnabled = environment->bloomEnabled;
+            target.post.bloomThreshold = environment->bloomThreshold;
+            target.post.bloomKnee = environment->bloomKnee;
+            target.post.bloomIntensity = environment->bloomIntensity;
+            target.post.greyscale = environment->greyscale;
             target.ambientColor = environment->ambientColor;
             frame.clearColor = {environment->clearColor.x, environment->clearColor.y,
                                 environment->clearColor.z, 1.f};

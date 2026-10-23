@@ -98,6 +98,7 @@
     <ClCompile Include="src\Presentation\Transition.cpp" />
     <ClCompile Include="src\Reflection\ComponentRegistry.cpp" />
     <ClCompile Include="src\Renderer\Renderer.cpp" />
+    <ClCompile Include="src\Renderer\RendererPost.cpp" />
     <ClCompile Include="src\Renderer\RenderTestScene.cpp" />
     <ClCompile Include="src\Renderer\SherlockSceneImport.cpp" />
     <ClCompile Include="src\Renderer\TextureLoader.cpp" />
@@ -140,6 +141,7 @@
     <ClInclude Include="src\Renderer\EmbeddedTextures.h" />
     <ClInclude Include="src\Renderer\Light.h" />
     <ClInclude Include="src\Renderer\Material.h" />
+    <ClInclude Include="src\Renderer\PostProcessSettings.h" />
     <ClInclude Include="src\Renderer\RenderComponents.h" />
     <ClInclude Include="src\Renderer\Renderer.h" />
     <ClInclude Include="src\Renderer\RenderTestScene.h" />
@@ -232,6 +234,30 @@
       <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
       <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
     </FxCompile>
+    <FxCompile Include="Shaders\ScreenVertexShader.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>VS_Screen</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\TonemapPixelShader.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PS_Tonemap</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
+    <FxCompile Include="Shaders\PostPixelShader.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+      <EntryPointName>PS_Post</EntryPointName>
+      <ObjectFileOutput>$(OutDir)Shaders\%(Filename).cso</ObjectFileOutput>
+      <EnableDebuggingInformation Condition="'$(Configuration)'=='Debug'">true</EnableDebuggingInformation>
+      <DisableOptimizations Condition="'$(Configuration)'=='Debug'">true</DisableOptimizations>
+    </FxCompile>
     <None Include="Shaders\Common.hlsli" />
   </ItemGroup>
   <Import Project="Dependencies.props" />
@@ -248,4 +274,4 @@
     <Copy SourceFiles="@(ShaderSourceFiles)" DestinationFolder="$(OutDir)Shaders" SkipUnchangedFiles="true" />
   </Target>
   <ImportGroup Label="ExtensionTargets" />
-</Project>
+</Project>

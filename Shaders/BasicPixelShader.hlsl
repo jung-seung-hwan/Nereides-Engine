@@ -131,7 +131,8 @@ float4 PS_Main(VSOutput input) : SV_TARGET
         clip(surface.a - alphaCutoff);
     }
 
-    // 감마 검증용: 조명 없이 알베도를 그대로 출력함. 128 회색 텍스처가 화면에서 128로 읽혀야 함 (노출·톤매핑도 거치지 않음).
+    // 감마 검증용: 조명 없이 알베도를 그대로 출력함. 128 회색 텍스처가 화면에서 128로 읽혀야 함.
+    // 2026/10/20 HDR: 톤매핑이 톤 패스로 옮겨 가서 이 픽셀도 노출·ACES 를 거침 — 감마 검증은 톤매핑을 끄고 노출 1 에서 할 것.
     if (unlit > 0.5f)
     {
         return float4(albedo, surface.a);
@@ -146,7 +147,7 @@ float4 PS_Main(VSOutput input) : SV_TARGET
     // F0: 수직으로 볼 때의 반사율. 유전체는 4%, 금속은 자기 색. 금속은 확산이 없음(kd 의 1 − metallic).
     const float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metal);
 
-    //  노멀 매핑. 탄젠트 공간(T, B, N) 의 노멀 맵 값을 월드 공간으로 변환함.
+    // 노멀 매핑. 탄젠트 공간(T, B, N) 의 노멀 맵 값을 월드 공간으로 변환함.
     // 노멀 맵은 선형 텍스처이고 (0.5, 0.5, 1) 이 "평평"을 뜻함. B 는 정점 탄젠트의 손잡이(w)로 복원함.
     const float3 geometricNormal = SafeNormalize(input.normal, float3(0.0f, 1.0f, 0.0f));
     const float3 T = SafeNormalize(input.tangent.xyz - geometricNormal * dot(geometricNormal, input.tangent.xyz), float3(1.0f, 0.0f, 0.0f));
@@ -228,5 +229,6 @@ float4 PS_Main(VSOutput input) : SV_TARGET
         finalColor += (kd * albedo + specular * PI) * irradiance;
     }
 
-    return float4(ApplyExposureToneMap(finalColor), surface.a);
+    // 2026/10/20 HDR: 선형 HDR 값을 그대로 FP16 타깃에 씀 (1 을 넘어도 잘리지 않음). 노출·ACES 는 TonemapPixelShader 가 함.
+    return float4(finalColor, surface.a);
 }

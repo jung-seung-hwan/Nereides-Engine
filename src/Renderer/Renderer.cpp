@@ -28,6 +28,10 @@ namespace
 	constexpr const wchar_t* kSkyVertexShaderFile = L"SkyboxVertexShader.hlsl";   // 2026-10-08
 	constexpr const wchar_t* kSkyPixelShaderFile = L"SkyboxPixelShader.hlsl";
 	constexpr const wchar_t* kCommonShaderFile = L"Common.hlsli";
+	// 2026/10/20 HDR: 화면을 덮는 삼각형 하나를 그리는 VS. 실제 처리(톤매핑·블러·블룸)는 각 PS 가 함.
+	constexpr const wchar_t* kScreenVertexShaderFile = L"ScreenVertexShader.hlsl";
+	constexpr const wchar_t* kTonemapPixelShaderFile = L"TonemapPixelShader.hlsl";
+	constexpr const wchar_t* kPostPixelShaderFile = L"PostPixelShader.hlsl";   // 2026/10/23: 블러·블룸 (PS_Post)
 	constexpr uint64_t kHotReloadPollIntervalMs = 500;   // 벽시계 밀리초
 
 	std::wstring ToWide(const std::string& utf8)
@@ -95,7 +99,8 @@ bool Renderer::Initialize(RHI::Device* device)
 	m_perObjectCB = makeCB(sizeof(PerObjectConstants), "CB_PerObject");
 	m_boneCB = makeCB(sizeof(BoneConstants), "CB_Bones");
 	m_lightCB = makeCB(sizeof(LightConstants), "CB_Lights");
-	if (!m_perFrameCB.IsValid() || !m_perObjectCB.IsValid() || !m_boneCB.IsValid() || !m_lightCB.IsValid())
+	m_postParamsCB = makeCB(sizeof(PostParamsConstants), "CB_PostParams");   // 2026/10/23
+	if (!m_perFrameCB.IsValid() || !m_perObjectCB.IsValid() || !m_boneCB.IsValid() || !m_lightCB.IsValid() || !m_postParamsCB.IsValid())
 	{
 		Log::Error("Renderer::Initialize : 상수버퍼 생성 실패.");
 		return false;
@@ -140,7 +145,17 @@ bool Renderer::Initialize(RHI::Device* device)
 	materialLayout.Add(BindingType::Sampler, ShaderStageMask_Pixel, kSamplerSlotMaterial);
 	m_materialLayout = m_device->CreateBindingLayout(materialLayout);
 
-	if (!m_frameLayout.IsValid() || !m_objectLayout.IsValid() || !m_materialLayout.IsValid())
+	// 후처리 셋: b0 (PerFrame: 노출·톤매핑·디버그 뷰), b5 (PostParams: 패스 파라미터), t13 (입력 텍스처), s6 (선형 Clamp).
+	// 슬롯 순서가 CreatePostSet 의 bindings 순서임. 모든 후처리 패스(톤매핑·블러·블룸)가 이 레이아웃 하나를 씀.
+	BindingLayoutDesc postLayout;
+	postLayout.debugName = "Layout_Post";
+	postLayout.Add(BindingType::ConstantBuffer, ShaderStageMask_Pixel, kCBSlotPerFrame);
+	postLayout.Add(BindingType::ConstantBuffer, ShaderStageMask_Pixel, kCBSlotPostParams);
+	postLayout.Add(BindingType::ShaderResource, ShaderStageMask_Pixel, kSRVSlotSceneHdr);
+	postLayout.Add(BindingType::Sampler, ShaderStageMask_Pixel, kSamplerSlotPost);
+	m_postLayout = m_device->CreateBindingLayout(postLayout);
+
+	if (!m_frameLayout.IsValid() || !m_objectLayout.IsValid() || !m_materialLayout.IsValid() || !m_postLayout.IsValid())
 	{
 		Log::Error("Renderer::Initialize : BindingLayout 생성 실패.");
 		return false;
@@ -203,12 +218,37 @@ bool Renderer::Initialize(RHI::Device* device)
 		.depthStencil = { .depthEnable = true, .depthWrite = false, .depthFunc = CompareFunc::LessEqual },
 	};
 
+	// 2026/10/20 HDR: 톤 패스. 풀스크린 삼각형, 컬링·깊이 없음. 깊이 없는 패스에 D24_UNORM_S8_UINT 를 주면 거부되므로 dsvFormat 은 Unknown.
+	m_tonemapDesc = PipelineStateDesc{
+		.vs = m_screenVs,
+		.ps = m_toneMapPs,
+		.bindingLayouts = { m_postLayout },
+		.bindingLayoutCount = 1,
+		.rasterizer = { .cull = CullMode::None },
+		.depthStencil = { .depthEnable = false, .depthWrite = false },
+		.dsvFormat = Format::Unknown,
+	};
+
+	// 2026/10/23: 블러·블룸. 톤 패스와 모양이 같으므로 그 Desc 를 베이스로 ps 만 바꿈.
+	// 가산 버전은 블룸 합성용: 출력 = 셰이더 출력 + 기존 값 (알파는 기존 값 유지).
+	m_postDesc = m_tonemapDesc;
+	m_postDesc.ps = m_postPs;
+	m_postAddDesc = m_postDesc;
+	m_postAddDesc.blend.rt[0] = RenderTargetBlendDesc{
+		.blendEnable = true,
+		.srcColor = BlendFactor::One, .dstColor = BlendFactor::One, .colorOp = BlendOp::Add,
+		.srcAlpha = BlendFactor::Zero, .dstAlpha = BlendFactor::One, .alphaOp = BlendOp::Add,
+	};
+
 	// 첫 프레임 전에 기본 PSO를 만들어 두어 생성 실패를 초기화 단계에서 잡음.
 	if (!GetPipelineFor(*m_defaultMaterial, VertexFormat::PositionColorNormalTexcoordTangent).IsValid() ||
 		!GetShadowPipelineFor(*m_defaultMaterial, VertexFormat::PositionColorNormalTexcoordTangent).IsValid() ||
 		!GetPipelineFor(*m_defaultMaterial, VertexFormat::PositionColorNormalTexcoordTangentSkinned).IsValid() ||
 		!GetShadowPipelineFor(*m_defaultMaterial, VertexFormat::PositionColorNormalTexcoordTangentSkinned).IsValid() ||
-		!GetSkyPipeline().IsValid())
+		!GetSkyPipeline().IsValid() ||
+		!GetTonemapPipeline().IsValid() ||
+		!GetPostPipeline(false).IsValid() ||
+		!GetPostPipeline(true).IsValid())
 	{
 		Log::Error("Renderer::Initialize : 기본 PSO 생성 실패.");
 		return false;
@@ -300,6 +340,7 @@ void Renderer::ResolveEnvironment(const nereides::RenderEnvironment& environment
 	binding.exposure = environment.exposure;
 	binding.toneMapping = environment.toneMapping;
 	m_environment = binding;
+	m_postSettings = environment.post;   // 2026/10/23
 }
 
 bool Renderer::UpdateFrameSet()
@@ -515,8 +556,8 @@ TextureHandle Renderer::GetOrLoadCubemap(const std::string& name, uint32_t* mipL
 
 bool Renderer::LoadShaders(bool fromSourceOnly)
 {
-	std::vector<uint8_t> vsCode, psCode, shadowCode, skyVsCode, skyPsCode, skinnedVsCode, shadowSkinnedCode;
-	std::wstring vsSource, psSource, shadowSource, skyVsSource, skyPsSource, skinnedVsSource, shadowSkinnedSource;
+	std::vector<uint8_t> vsCode, psCode, shadowCode, skyVsCode, skyPsCode, skinnedVsCode, shadowSkinnedCode, screenVsCode, toneMapPsCode, postPsCode;
+	std::wstring vsSource, psSource, shadowSource, skyVsSource, skyPsSource, skinnedVsSource, shadowSkinnedSource, screenVsSource, toneMapPsSource, postPsSource;
 
 	if (fromSourceOnly)
 	{
@@ -527,6 +568,9 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 		skyPsSource = Paths::GetShaderSourcePath(kSkyPixelShaderFile);
 		skinnedVsSource = Paths::GetShaderSourcePath(kSkinnedVertexShaderFile);
 		shadowSkinnedSource = Paths::GetShaderSourcePath(kShadowSkinnedShaderFile);
+		screenVsSource = Paths::GetShaderSourcePath(kScreenVertexShaderFile);
+		toneMapPsSource = Paths::GetShaderSourcePath(kTonemapPixelShaderFile);
+		postPsSource = Paths::GetShaderSourcePath(kPostPixelShaderFile);
 		if (!ShaderCompiler::CompileFromFile(vsSource, "VS_Main", ShaderStage::Vertex, vsCode)) return false;
 		if (!ShaderCompiler::CompileFromFile(psSource, "PS_Main", ShaderStage::Pixel, psCode)) return false;
 		if (!ShaderCompiler::CompileFromFile(shadowSource, "VS_Shadow", ShaderStage::Vertex, shadowCode)) return false;
@@ -534,6 +578,9 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 		if (!ShaderCompiler::CompileFromFile(skyPsSource, "PS_Sky", ShaderStage::Pixel, skyPsCode)) return false;
 		if (!ShaderCompiler::CompileFromFile(skinnedVsSource, "VS_Skinned", ShaderStage::Vertex, skinnedVsCode)) return false;
 		if (!ShaderCompiler::CompileFromFile(shadowSkinnedSource, "VS_ShadowSkinned", ShaderStage::Vertex, shadowSkinnedCode)) return false;
+		if (!ShaderCompiler::CompileFromFile(screenVsSource, "VS_Screen", ShaderStage::Vertex, screenVsCode)) return false;
+		if (!ShaderCompiler::CompileFromFile(toneMapPsSource, "PS_Tonemap", ShaderStage::Pixel, toneMapPsCode)) return false;
+		if (!ShaderCompiler::CompileFromFile(postPsSource, "PS_Post", ShaderStage::Pixel, postPsCode)) return false;
 	}
 	else
 	{
@@ -544,6 +591,9 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 		if (!ShaderCompiler::LoadOrCompile(kSkyPixelShaderFile, "PS_Sky", ShaderStage::Pixel, skyPsCode, &skyPsSource)) return false;
 		if (!ShaderCompiler::LoadOrCompile(kSkinnedVertexShaderFile, "VS_Skinned", ShaderStage::Vertex, skinnedVsCode, &skinnedVsSource)) return false;
 		if (!ShaderCompiler::LoadOrCompile(kShadowSkinnedShaderFile, "VS_ShadowSkinned", ShaderStage::Vertex, shadowSkinnedCode, &shadowSkinnedSource)) return false;
+		if (!ShaderCompiler::LoadOrCompile(kScreenVertexShaderFile, "VS_Screen", ShaderStage::Vertex, screenVsCode, &screenVsSource)) return false;
+		if (!ShaderCompiler::LoadOrCompile(kTonemapPixelShaderFile, "PS_Tonemap", ShaderStage::Pixel, toneMapPsCode, &toneMapPsSource)) return false;
+		if (!ShaderCompiler::LoadOrCompile(kPostPixelShaderFile, "PS_Post", ShaderStage::Pixel, postPsCode, &postPsSource)) return false;
 	}
 
 #if defined(_DEBUG)
@@ -561,6 +611,9 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 	layoutOk &= ShaderCompiler::ValidateConstantBufferSize(skinnedVsCode, "Bones", sizeof(BoneConstants));   // Nereides: 스키닝
 	layoutOk &= ShaderCompiler::ValidateConstantBufferSize(skinnedVsCode, "PerObject", sizeof(PerObjectConstants));
 	layoutOk &= ShaderCompiler::ValidateConstantBufferSize(shadowSkinnedCode, "Bones", sizeof(BoneConstants));
+	layoutOk &= ShaderCompiler::ValidateConstantBufferSize(toneMapPsCode, "PerFrame", sizeof(PerFrameConstants));   // 2026/10/20 HDR
+	layoutOk &= ShaderCompiler::ValidateConstantBufferSize(toneMapPsCode, "PostParams", sizeof(PostParamsConstants));   // 2026/10/23
+	layoutOk &= ShaderCompiler::ValidateConstantBufferSize(postPsCode, "PostParams", sizeof(PostParamsConstants));
 	if (!layoutOk)
 	{
 		Log::Error("Renderer : 상수버퍼 레이아웃 불일치.");
@@ -569,7 +622,7 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 #endif
 
 	// 셰이더가 실제로 쓰는 슬롯이 선언한 레이아웃 안에 있는지 검사함. Release에서는 경고만 함.
-	if (!ValidateBindings(vsCode, psCode, shadowCode, skyVsCode, skyPsCode, skinnedVsCode, shadowSkinnedCode))
+	if (!ValidateBindings(vsCode, psCode, shadowCode, skyVsCode, skyPsCode, skinnedVsCode, shadowSkinnedCode, screenVsCode, toneMapPsCode, postPsCode))
 	{
 #if defined(_DEBUG)
 		return false;
@@ -589,11 +642,18 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 	const ShaderHandle newSkyPs = makeShader(ShaderStage::Pixel, skyPsCode, "SkyboxPS");
 	const ShaderHandle newSkinnedVs = makeShader(ShaderStage::Vertex, skinnedVsCode, "SkinnedVS");
 	const ShaderHandle newShadowSkinnedVs = makeShader(ShaderStage::Vertex, shadowSkinnedCode, "ShadowSkinnedVS");
+	const ShaderHandle newScreenVs = makeShader(ShaderStage::Vertex, screenVsCode, "ScreenVS");
+	const ShaderHandle newToneMapPs = makeShader(ShaderStage::Pixel, toneMapPsCode, "ToneMapPS");
+	const ShaderHandle newPostPs = makeShader(ShaderStage::Pixel, postPsCode, "PostPS");
 
 	if (!newVs.IsValid() || !newPs.IsValid() || !newShadowVs.IsValid() || !newSkyVs.IsValid() || !newSkyPs.IsValid()
-		|| !newSkinnedVs.IsValid() || !newShadowSkinnedVs.IsValid())
+		|| !newSkinnedVs.IsValid() || !newShadowSkinnedVs.IsValid()
+		|| !newScreenVs.IsValid() || !newToneMapPs.IsValid() || !newPostPs.IsValid())
 	{
 		Log::Error("Renderer : 셰이더 생성 실패.");
+		m_device->DestroyShader(newScreenVs);
+		m_device->DestroyShader(newToneMapPs);
+		m_device->DestroyShader(newPostPs);
 		m_device->DestroyShader(newSkinnedVs);
 		m_device->DestroyShader(newShadowSkinnedVs);
 		m_device->DestroyShader(newVs);
@@ -612,6 +672,12 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 	m_device->DestroyShader(m_skyPs);
 	m_device->DestroyShader(m_vsSkinned);
 	m_device->DestroyShader(m_shadowVsSkinned);
+	m_device->DestroyShader(m_screenVs);
+	m_device->DestroyShader(m_toneMapPs);
+	m_device->DestroyShader(m_postPs);
+	m_screenVs = newScreenVs;
+	m_toneMapPs = newToneMapPs;
+	m_postPs = newPostPs;
 	m_vsSkinned = newSkinnedVs;
 	m_shadowVsSkinned = newShadowSkinnedVs;
 	m_vs = newVs;
@@ -622,7 +688,8 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 
 	// 핫리로드 감시 목록: 소스 트리의 원본 여섯 개(VS·PS·ShadowVS·SkyboxVS·SkyboxPS·Common.hlsli). Release에서도 목록은 만들지만 CheckHotReload가 동작하지 않음.
 	m_watched.clear();
-	for (const wchar_t* file : { kVertexShaderFile, kPixelShaderFile, kShadowShaderFile, kSkyVertexShaderFile, kSkyPixelShaderFile, kSkinnedVertexShaderFile, kShadowSkinnedShaderFile, kCommonShaderFile })
+	for (const wchar_t* file : { kVertexShaderFile, kPixelShaderFile, kShadowShaderFile, kSkyVertexShaderFile, kSkyPixelShaderFile, kSkinnedVertexShaderFile, kShadowSkinnedShaderFile, kCommonShaderFile,
+		kScreenVertexShaderFile, kTonemapPixelShaderFile, kPostPixelShaderFile })
 	{
 		WatchedFile watched;
 		watched.path = Paths::GetShaderSourcePath(file);
@@ -637,7 +704,8 @@ bool Renderer::LoadShaders(bool fromSourceOnly)
 
 bool Renderer::ValidateBindings(const std::vector<uint8_t>& vsCode, const std::vector<uint8_t>& psCode, const std::vector<uint8_t>& shadowVsCode,
 	const std::vector<uint8_t>& skyVsCode, const std::vector<uint8_t>& skyPsCode, const std::vector<uint8_t>& skinnedVsCode,
-	const std::vector<uint8_t>& shadowSkinnedVsCode) const
+	const std::vector<uint8_t>& shadowSkinnedVsCode, const std::vector<uint8_t>& screenVsCode, const std::vector<uint8_t>& toneMapPsCode,
+	const std::vector<uint8_t>& postPsCode) const
 {
 	// 선언: 세 레이아웃의 슬롯 합집합. Renderer가 만든 Desc 내용을 그대로 다시 적음.
 	struct Declared { BindingType type; uint8_t reg; uint8_t stageMask; };
@@ -661,6 +729,9 @@ bool Renderer::ValidateBindings(const std::vector<uint8_t>& vsCode, const std::v
 		{ BindingType::ShaderResource, kSRVSlotOcclusion,   ShaderStageMask_Pixel },
 		{ BindingType::ShaderResource, kSRVSlotEmissive,    ShaderStageMask_Pixel },
 		{ BindingType::Sampler,        kSamplerSlotMaterial, ShaderStageMask_Pixel },
+		{ BindingType::ShaderResource, kSRVSlotSceneHdr,    ShaderStageMask_Pixel },   // 2026/10/20 HDR: 후처리 레이아웃
+		{ BindingType::ConstantBuffer, kCBSlotPostParams,   ShaderStageMask_Pixel },   // 2026/10/23
+		{ BindingType::Sampler,        kSamplerSlotPost,    ShaderStageMask_Pixel },
 	};
 
 	bool ok = true;
@@ -696,6 +767,9 @@ bool Renderer::ValidateBindings(const std::vector<uint8_t>& vsCode, const std::v
 	check(skyPsCode, ShaderStageMask_Pixel, "SkyboxPS");
 	check(skinnedVsCode, ShaderStageMask_Vertex, "SkinnedVS");
 	check(shadowSkinnedVsCode, ShaderStageMask_Vertex, "ShadowSkinnedVS");
+	check(screenVsCode, ShaderStageMask_Vertex, "ScreenVS");
+	check(toneMapPsCode, ShaderStageMask_Pixel, "ToneMapPS");
+	check(postPsCode, ShaderStageMask_Pixel, "PostPS");
 	return ok;
 }
 
@@ -719,6 +793,10 @@ bool Renderer::ReloadShaders()
 	m_shadowDesc.vs = m_shadowVs;
 	m_skyDesc.vs = m_skyVs;
 	m_skyDesc.ps = m_skyPs;
+	m_tonemapDesc.vs = m_screenVs;
+	m_tonemapDesc.ps = m_toneMapPs;
+	m_postDesc.vs = m_postAddDesc.vs = m_screenVs;
+	m_postDesc.ps = m_postAddDesc.ps = m_postPs;
 	m_device->InvalidatePipelines();
 	++m_stats.shaderReloads;
 	Log::Info("셰이더 핫리로드 완료 (%u회째). PSO 캐시 재생성.", m_stats.shaderReloads);
@@ -780,6 +858,9 @@ void Renderer::Shutdown()
 	m_blackCube = TextureHandle{};
 	m_environment = m_boundEnvironment = EnvironmentBinding{};
 	SetSceneTarget(0, 0);   // 11단계
+	DestroyHdrTargets();    // 2026/10/20 HDR
+	DestroyStageThumbs();   // 2026/10/23
+	m_outputWidth = m_outputHeight = 0;
 	m_device->DestroyTexture(m_shadowMap);
 	m_device->DestroySampler(m_shadowSampler);
 	m_shadowMap = TextureHandle{};
@@ -795,10 +876,15 @@ void Renderer::Shutdown()
 	m_device->DestroyBindingLayout(m_frameLayout);
 	m_device->DestroyBindingLayout(m_objectLayout);
 	m_device->DestroyBindingLayout(m_materialLayout);
+	m_device->DestroyBindingLayout(m_postLayout);
 	m_device->DestroyBuffer(m_perFrameCB);
 	m_device->DestroyBuffer(m_perObjectCB);
 	m_device->DestroyBuffer(m_boneCB);
 	m_device->DestroyBuffer(m_lightCB);
+	m_device->DestroyBuffer(m_postParamsCB);
+	m_device->DestroyShader(m_screenVs);
+	m_device->DestroyShader(m_toneMapPs);
+	m_device->DestroyShader(m_postPs);
 	m_device->DestroyShader(m_vsSkinned);
 	m_device->DestroyShader(m_shadowVsSkinned);
 	m_device->DestroyShader(m_vs);
@@ -808,10 +894,11 @@ void Renderer::Shutdown()
 	m_device->DestroyShader(m_skyPs);
 	// PSO는 캐시가 소유함. 셰이더 핸들을 지워도 PSO는 자기 참조로 셰이더 객체를 붙들고 있음.
 
-	m_perFrameCB = m_perObjectCB = m_boneCB = m_lightCB = BufferHandle{};
+	m_perFrameCB = m_perObjectCB = m_boneCB = m_lightCB = m_postParamsCB = BufferHandle{};
 	m_frameSet = m_objectSet = ResourceSetHandle{};
-	m_frameLayout = m_objectLayout = m_materialLayout = BindingLayoutHandle{};
+	m_frameLayout = m_objectLayout = m_materialLayout = m_postLayout = BindingLayoutHandle{};
 	m_vs = m_vsSkinned = m_ps = m_shadowVs = m_shadowVsSkinned = m_skyVs = m_skyPs = ShaderHandle{};
+	m_screenVs = m_toneMapPs = m_postPs = ShaderHandle{};
 	m_device = nullptr;
 }
 
@@ -888,6 +975,14 @@ void Renderer::Render(const nereides::RenderFrame& frame)
 
 	CheckHotReload();
 	PruneCaches();
+	// 2026/10/20 HDR: 출력 크기(에디터는 씬 뷰, 게임은 백버퍼)에 맞는 HDR 텍스처가 있어야 그릴 수 있음. 만들지 못했으면 이번 프레임은 건너뜀.
+	EnsureHdrTargets();
+	if (!m_hdrColor.IsValid() || !m_hdrPostSet.IsValid()) return;
+	// 2026/10/23: 단계별 썸네일. 창이 요청한 프레임에만 (요청은 한 번 쓰면 지움 — 창을 닫으면 다음 프레임부터 멈춤).
+	m_postCapture = m_postCaptureRequested && IsOffscreen();
+	m_postCaptureRequested = false;
+	for (PostStageThumb& thumb : m_stageThumbs) thumb.active = false;
+	if (m_postCapture) EnsureStageThumbs(m_hdrWidth, m_hdrHeight);
 	++m_frameNumber;
 	const uint32_t reloads = m_stats.shaderReloads;
 	const uint32_t lastPasses = m_stats.renderPasses;   // 2026-10-15: 패스·배리어 수는 UI 패스까지 센 지난 프레임 값 (EndUIPass 가 채움)
@@ -955,6 +1050,23 @@ void Renderer::Render(const nereides::RenderFrame& frame)
 		RenderShadowPass(cmd);
 	}
 	RenderMainPass(cmd, frame);
+
+	// 2026/10/23: HDR 구간 후처리 (블러 → 블룸). 결과는 m_hdrColor 에 제자리로 남아 톤 패스가 그대로 읽음.
+	ApplyHdrEffects(cmd, m_postMain, m_hdrColor, m_hdrColorState, m_hdrPostSet, m_hdrWidth, m_hdrHeight, m_postCapture);
+
+	// 2026/10/20 HDR: HDR 씬 → 노출·ACES·sRGB → 최종 출력. 에디터는 씬 뷰 텍스처, 게임은 백버퍼.
+	if (IsOffscreen())
+	{
+		RenderTonemapPass(cmd, m_hdrPostSet, m_sceneColor, m_sceneColorState, ResourceState::ShaderResource, "TonemapPass",
+			m_hdrWidth, m_hdrHeight, m_hdrWidth, m_hdrHeight);
+		m_sceneColorState = ResourceState::ShaderResource;   // ImGui 가 샘플링함
+	}
+	else
+	{
+		// 백버퍼: Present → RenderTarget. UI 패스가 이어서 이 상태에서 그림 (BeginUIPass 는 전이하지 않음).
+		RenderTonemapPass(cmd, m_hdrPostSet, m_device->GetBackBuffer(), ResourceState::Present, ResourceState::RenderTarget, "TonemapPass",
+			m_hdrWidth, m_hdrHeight, m_hdrWidth, m_hdrHeight);
+	}
 }
 
 void Renderer::BuildDrawList(const nereides::RenderFrame& frame)
@@ -1079,30 +1191,19 @@ void Renderer::RenderShadowPass(RHI::CommandList& cmd)
 
 void Renderer::RenderMainPass(RHI::CommandList& cmd, const nereides::RenderFrame& frame)
 {
-	// 11단계: 에디터가 씬 뷰 텍스처를 요청했으면 거기에 그리고, 아니면 백버퍼에 직접 그림.
-	TextureHandle target;
-	TextureHandle depth;
-	if (IsOffscreen())
-	{
-		target = m_sceneColor;
-		depth = m_sceneDepth;
-		cmd.Barrier(m_sceneColor, m_sceneColorState, ResourceState::RenderTarget);
-		m_sceneColorState = ResourceState::RenderTarget;
-	}
-	else
-	{
-		target = m_device->GetBackBuffer();
-		depth = m_device->GetDepthBuffer();
-		// 백버퍼: Present → RenderTarget. (D3D12 스왑체인 관례. D3D11 에서는 상태 추적만 함.)
-		cmd.Barrier(target, ResourceState::Present, ResourceState::RenderTarget);
-	}
+	// 2026/10/20 HDR: 씬은 선형 FP16 텍스처(m_hdrColor)에 그림. 최종 출력(씬 뷰 텍스처 또는 백버퍼)과 그 상태 전이는 톤 패스가 맡음.
+	// 깊이는 출력과 같은 크기여야 하므로 에디터면 씬 뷰 깊이, 게임 모드면 장치 깊이 버퍼를 씀.
+	const TextureHandle depth = IsOffscreen() ? m_sceneDepth : m_device->GetDepthBuffer();
+
+	cmd.Barrier(m_hdrColor, m_hdrColorState, ResourceState::RenderTarget);
+	m_hdrColorState = ResourceState::RenderTarget;
 
 	const RenderPassDesc pass{
 		.colors = { {
-			.texture = target,
+			.texture = m_hdrColor,
 			.load = LoadOp::Clear,
-			.srgbView = m_settings.srgbOutput,   // 클리어 색은 선형 값. sRGB 뷰가 인코딩함
-			.clearColor = { frame.clearColor[0], frame.clearColor[1], frame.clearColor[2], frame.clearColor[3] },
+			.srgbView = false,   // FP16 에는 sRGB 뷰가 없음. 선형 값을 그대로 씀 — sRGB 인코딩은 톤 패스의 RTV 가 함
+			.clearColor = { frame.clearColor[0], frame.clearColor[1], frame.clearColor[2], frame.clearColor[3] },   // 선형. 노출·ACES 를 거침
 		} },
 		.colorCount = 1,
 		.depth = { .texture = depth, .load = LoadOp::Clear },
@@ -1112,12 +1213,74 @@ void Renderer::RenderMainPass(RHI::CommandList& cmd, const nereides::RenderFrame
 	DrawItems(cmd, frame);
 	cmd.EndRenderPass();
 
-	if (IsOffscreen())
-	{
-		// ImGui 가 이 텍스처를 샘플링함. D3D12 에서는 실제 배리어를 기록하고, D3D11 에서는 상태만 추적함.
-		cmd.Barrier(m_sceneColor, ResourceState::RenderTarget, ResourceState::ShaderResource);
-		m_sceneColorState = ResourceState::ShaderResource;
-	}
+	// 후처리·톤 패스가 t13 으로 읽음.
+	cmd.Barrier(m_hdrColor, ResourceState::RenderTarget, ResourceState::ShaderResource);
+	m_hdrColorState = ResourceState::ShaderResource;
+}
+
+ResourceSetHandle Renderer::CreatePostSet(TextureHandle input, const char* debugName)
+{
+	// 슬롯 순서는 Initialize 의 postLayout.Add(...) 순서: b0 PerFrame, b5 PostParams, t13 입력, s6 선형 Clamp.
+	const ResourceSetDesc desc{
+		.layout = m_postLayout,
+		.bindings = { { .buffer = m_perFrameCB }, { .buffer = m_postParamsCB }, { .texture = input }, { .sampler = GetSampler(SamplerPreset::LinearClamp) } },
+		.debugName = debugName,
+	};
+	return m_device->CreateResourceSet(desc);
+}
+
+void Renderer::UploadPostParams(const PostParamsConstants& params)
+{
+	m_device->UpdateBuffer(m_postParamsCB, &params, sizeof(params));
+}
+
+void Renderer::RenderPostPass(RHI::CommandList& cmd, const PostPassDesc& desc)
+{
+	if (!desc.pipeline.IsValid() || !desc.input.IsValid() || !desc.output.IsValid()) return;
+
+	// 출력: (에디터) 씬 뷰 텍스처 Common/ShaderResource → RenderTarget, (게임) 백버퍼 Present → RenderTarget.
+	// D3D12 스왑체인 관례. D3D11 에서는 상태 추적만 함.
+	cmd.Barrier(desc.output, desc.outputBefore, ResourceState::RenderTarget);
+
+	// 전체 화면을 다 덮어쓰면 Load 도 Clear 도 필요 없음 (DontCare). 덧그리는 패스(블룸 합성)는 Load.
+	// sRGB 뷰는 선형 → sRGB 인코딩을 함 (톤 패스만 씀).
+	const RenderPassDesc pass{
+		.colors = { { .texture = desc.output, .load = desc.load, .srgbView = desc.srgbView } },
+		.colorCount = 1,
+		.debugName = desc.debugName,
+	};
+	cmd.BeginRenderPass(pass);
+	cmd.SetPipelineState(desc.pipeline);
+	cmd.SetResourceSet(desc.input);   // b0 (PerFrame) + b5 (PostParams) + t13 (입력) + s6
+	cmd.Draw(3, 0);                   // 정점 버퍼 없음 — ScreenVS 가 SV_VertexID 로 삼각형 하나를 만듦
+	++m_stats.pipelineSwitches;
+	++m_stats.draws;
+	m_stats.triangles += 1;
+	cmd.EndRenderPass();
+
+	// ImGui 가 샘플링하거나 (씬 뷰·썸네일), 다음 후처리 패스가 읽거나, UI 패스가 이어서 백버퍼에 그림 (게임).
+	cmd.Barrier(desc.output, ResourceState::RenderTarget, desc.outputAfter);
+}
+
+void Renderer::RenderTonemapPass(RHI::CommandList& cmd, ResourceSetHandle hdrSet, TextureHandle output,
+	ResourceState outputBefore, ResourceState outputAfter, const char* debugName,
+	uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool skipGrade)
+{
+	PostParamsConstants params = {};
+	params.view = XMFLOAT4(static_cast<float>(srcW), static_cast<float>(srcH), static_cast<float>(dstW), static_cast<float>(dstH));
+	params.grade = XMFLOAT4(m_postSettings.greyscale, skipGrade ? 1.0f : 0.0f, 0.0f, 0.0f);
+	UploadPostParams(params);   // 효과가 전부 꺼져도 매 프레임 올림 (D3D12 의 갱신 안 된 Dynamic CB 경고 방지)
+
+	RenderPostPass(cmd, PostPassDesc{
+		.pipeline = GetTonemapPipeline(),
+		.input = hdrSet,
+		.output = output,
+		.outputBefore = outputBefore,
+		.outputAfter = outputAfter,
+		.load = LoadOp::DontCare,
+		.srgbView = m_settings.srgbOutput,
+		.debugName = debugName,
+	});
 }
 
 void Renderer::DrawItems(RHI::CommandList& cmd, const nereides::RenderFrame& frame)
@@ -1425,9 +1588,9 @@ PipelineHandle Renderer::GetPipelineFor(const Material& material, VertexFormat v
 	desc.vertexLayout = GetVertexLayout(vertexFormat);
 	desc.rasterizer.fill = (m_settings.wireframe || material.wireframe) ? FillMode::Wireframe : FillMode::Solid;
 	desc.rasterizer.cull = (m_settings.cullBack && !material.doubleSided) ? CullMode::Back : CullMode::None;
-	// 8단계: D3D12 PSO 는 렌더 타깃 뷰의 포맷을 알아야 함. 메인 패스가 백버퍼의 sRGB 뷰에 그리면 PSO 도 sRGB 포맷이어야 함.
-	// D3D11 은 이 항목을 쓰지 않지만 1단계부터 Desc 에 있었고, 여기서 처음 실제 값이 들어감.
-	desc.rtvFormats[0] = m_settings.srgbOutput ? Format::R8G8B8A8_UNORM_SRGB : Format::R8G8B8A8_UNORM;
+	// 8단계: D3D12 PSO 는 렌더 타깃 뷰의 포맷을 알아야 함. 2026/10/20 HDR: 메인 패스는 FP16 HDR 텍스처에 그리므로 항상 R16G16B16A16_FLOAT.
+	// (sRGB 여부는 톤 패스의 PSO 만 따짐 — GetTonemapPipeline)
+	desc.rtvFormats[0] = Format::R16G16B16A16_FLOAT;
 	desc.rtvCount = 1;
 	desc.dsvFormat = Format::D24_UNORM_S8_UINT;
 	return m_device->CreatePipeline(desc);
@@ -1448,9 +1611,19 @@ PipelineHandle Renderer::GetSkyPipeline()
 	// 메인 패스와 같은 타깃에 그리므로 RTV/DSV 포맷도 메인 PSO 와 같게 맞춤 (D3D12 PSO 는 이 값이 다르면 그릴 수 없음).
 	// 와이어프레임 설정은 따르지 않음 — 화면을 덮는 삼각형 하나의 모서리만 보여 의미가 없음.
 	PipelineStateDesc desc = m_skyDesc;
-	desc.rtvFormats[0] = m_settings.srgbOutput ? Format::R8G8B8A8_UNORM_SRGB : Format::R8G8B8A8_UNORM;
+	desc.rtvFormats[0] = Format::R16G16B16A16_FLOAT;   // 2026/10/20 HDR: 메인 PSO 와 같은 FP16 타깃
 	desc.rtvCount = 1;
 	desc.dsvFormat = Format::D24_UNORM_S8_UINT;
+	return m_device->CreatePipeline(desc);
+}
+
+PipelineHandle Renderer::GetTonemapPipeline()
+{
+	// 톤 패스는 최종 출력 타깃(에디터는 씬 뷰 텍스처, 게임은 백버퍼)에 그림. RTV 포맷은 그 타깃의 뷰와 같아야 함 (D3D12 PSO).
+	// 깊이 없음 — dsvFormat 은 m_tonemapDesc 의 Unknown 그대로 둠.
+	PipelineStateDesc desc = m_tonemapDesc;
+	desc.rtvFormats[0] = m_settings.srgbOutput ? Format::R8G8B8A8_UNORM_SRGB : Format::R8G8B8A8_UNORM;
+	desc.rtvCount = 1;
 	return m_device->CreatePipeline(desc);
 }
 
@@ -1498,4 +1671,62 @@ void Renderer::SetSceneTarget(uint32_t width, uint32_t height)
 		return;
 	}
 	Log::Info("씬 뷰 텍스처 %ux%u", width, height);
+}
+
+// ------------------------------------------------------------------ 2026/10/20 HDR 타깃
+
+void Renderer::SetOutputSize(uint32_t width, uint32_t height)
+{
+	m_outputWidth = width;
+	m_outputHeight = height;
+}
+
+void Renderer::DestroyHdrTargets()
+{
+	if (m_device == nullptr) return;
+	// D3D12 는 지연 해제라 이미 기록된 명령이 읽어도 안전함 (SetSceneTarget 과 같은 이유).
+	if (m_hdrPostSet.IsValid()) m_device->DestroyResourceSet(m_hdrPostSet);
+	if (m_hdrColor.IsValid()) m_device->DestroyTexture(m_hdrColor);
+	m_hdrPostSet = ResourceSetHandle{};
+	m_hdrColor = TextureHandle{};
+	DestroyPostScratch(m_postMain);   // 2026/10/23: 스크래치는 HDR 크기를 따름. 효과가 켜져 있으면 다음 프레임에 다시 만듦
+	m_hdrWidth = 0;
+	m_hdrHeight = 0;
+	m_hdrColorState = ResourceState::Common;
+}
+
+void Renderer::EnsureHdrTargets()
+{
+	if (m_device == nullptr) return;
+
+	// 목표 크기 = 최종 출력과 같은 크기. 에디터는 씬 뷰 텍스처, 게임 모드는 백버퍼 (깊이 버퍼도 같은 크기임).
+	const uint32_t width = IsOffscreen() ? m_sceneWidth : m_outputWidth;
+	const uint32_t height = IsOffscreen() ? m_sceneHeight : m_outputHeight;
+	if (width == 0 || height == 0) return;
+	if (m_hdrColor.IsValid() && m_hdrPostSet.IsValid() && width == m_hdrWidth && height == m_hdrHeight) return;
+
+	DestroyHdrTargets();
+
+	const TextureDesc desc{
+		.width = width,
+		.height = height,
+		.format = Format::R16G16B16A16_FLOAT,   // 선형 half4. 1 을 넘는 값(태양, 강한 조명)을 잘라내지 않고 담음
+		.mipLevels = 1,
+		.bindFlags = TextureBind_RenderTarget | TextureBind_ShaderResource,
+		.debugName = "SceneHDR",
+	};
+	m_hdrColor = m_device->CreateTexture(desc);
+	if (m_hdrColor.IsValid())
+	{
+		m_hdrPostSet = CreatePostSet(m_hdrColor, "Set_Post_HDR");
+	}
+	if (!m_hdrColor.IsValid() || !m_hdrPostSet.IsValid())
+	{
+		Log::Error("HDR 텍스처 생성 실패 (%ux%u).", width, height);
+		DestroyHdrTargets();
+		return;
+	}
+	m_hdrWidth = width;
+	m_hdrHeight = height;
+	Log::Info("HDR 텍스처 %ux%u (R16G16B16A16_FLOAT)", width, height);
 }

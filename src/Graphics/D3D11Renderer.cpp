@@ -134,6 +134,7 @@ bool D3D11Renderer::Initialize(HWND window, std::uint32_t width, std::uint32_t h
     m_renderer = std::make_unique<Renderer>();
     if (!m_renderer->Initialize(m_rhi.get()))
         return Fail("장면 렌더러 초기화 실패");
+    m_renderer->SetOutputSize(width, height); // 2026/10/20 HDR: 백버퍼에 직접 그릴 때의 HDR 타깃 크기
 
     if (!CreateTriangle())
         return false;
@@ -158,6 +159,8 @@ bool D3D11Renderer::Resize(std::uint32_t width, std::uint32_t height)
 
     m_width = width;
     m_height = height;
+    if (m_renderer)
+        m_renderer->SetOutputSize(width, height); // 2026/10/20 HDR
     return true;
 }
 

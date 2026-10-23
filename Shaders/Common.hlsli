@@ -53,6 +53,16 @@ cbuffer PerFrame : register(b0)
     float4 outputParams;      // 2026-10-08: x = 노출, y = 톤매핑, z = BRDF LUT 있음
 }
 
+// b5: 후처리 패스 파라미터 (Sherlock 은 b4 — Nereides 는 b4 를 뼈 팔레트가 씀). 후처리 셋(톤 패스·블러·블룸)만 바인딩함. (80바이트, ShaderConstants.h 의 PostParamsConstants)
+cbuffer PostParams : register(b5)
+{
+    float4 postPass;          // x = 모드 (1 블러, 2 블룸 밝기 추출+축소, 3 축소, 4 확대), y,z = 블러 방향 (텍셀 단위)
+    float4 postBlur;          // x = 시그마(픽셀), y = 반경(픽셀)
+    float4 postBloom;         // x = 임계값, y = knee, z = 확대 결과 배율
+    float4 postView;          // xy = 입력 크기, zw = 출력 크기 (픽셀)
+    float4 postGrade;         // x = GreyScale 양, y = 1 이면 색 효과를 건너뜀
+}
+
 // b1: 드로우마다. VS만. (128바이트)
 cbuffer PerObject : register(b1)
 {
@@ -161,7 +171,9 @@ float3 SafeNormalize(float3 value, float3 fallback)
 }
 
 // 2026-10-08: 최종 출력. 노출을 곱하고, 켜져 있으면 ACES 근사(Narkowicz 2016)로 [0, ∞) → [0, 1] 로 누름.
-// 꺼져 있으면 1 을 넘는 값은 백버퍼에서 잘림. 결과는 선형 — sRGB RTV 가 인코딩함.
+// 꺼져 있으면 1 을 넘는 값은 출력 타깃에서 잘림. 결과는 선형 — sRGB RTV 가 인코딩함.
+// 2026/10/20 HDR: 이 함수는 TonemapPixelShader 만 부름 (메인·스카이 PS 는 선형 HDR 값을 FP16 타깃에 그대로 씀).
+// 그래서 "sRGB RTV" 는 톤 패스의 출력 뷰임.
 float3 ApplyExposureToneMap(float3 color)
 {
     color *= outputParams.x;

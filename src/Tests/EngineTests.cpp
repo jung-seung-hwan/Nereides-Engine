@@ -1259,6 +1259,9 @@ void TestRenderSceneComponents()
     environment.preset = EnvironmentPreset::CubemapSample;
     environment.iblIntensity = .5f;
     environment.toneMapping = true;
+    environment.bloomEnabled = true;
+    environment.bloomIntensity = 1.5f;
+    environment.greyscale = .25f;
 
     const auto text = SceneIO::Encode(scene, camera.Id(), 0);
     ModelCache cache;
@@ -1286,6 +1289,10 @@ void TestRenderSceneComponents()
     Require(frame.environment.skybox == "Cubemap/CubemapSampleEnvHDR.dds" &&
                 Near(frame.environment.iblIntensity, .5) && frame.environment.toneMapping,
             "environment preset reaches the frame");
+    Require(frame.environment.post.bloomEnabled && !frame.environment.post.blurEnabled &&
+                Near(frame.environment.post.bloomIntensity, 1.5) &&
+                Near(frame.environment.post.greyscale, .25),
+            "post process settings reach the frame");
 
     // 조명·환경이 없는 씬은 기본값을 유지
     Scene plain;
@@ -1378,8 +1385,10 @@ void TestRenderPipeline()
 
     // GPU 정합: 같은 카메라로 그린 결과가 재질·메시가 바뀌면 달라져야 함 (예전 캐시가 남으면 같음)
     const auto render = [&](std::shared_ptr<const MeshData> mesh,
-                            std::shared_ptr<const Material> material, std::vector<XMFLOAT4X4> bones = {}) {
+                            std::shared_ptr<const Material> material, std::vector<XMFLOAT4X4> bones = {},
+                            const PostProcessSettings& post = {}) {
         RenderFrame frame;
+        frame.environment.post = post;
         frame.lights.assign(12, LightData{}); // 8개를 넘는 조명은 앞의 8개만 쓰임
         XMStoreFloat4x4(&frame.view, XMMatrixLookAtLH(XMVectorSet(0, 1.5f, -4, 1), XMVectorZero(),
                                                       XMVectorSet(0, 1, 0, 0)));
@@ -1427,6 +1436,23 @@ void TestRenderPipeline()
         const auto still = render(skinned, red.RenderMaterial(), {identity});
         Require(still == redHash, "identity skin draws like the static mesh");
         Require(still != render(skinned, red.RenderMaterial(), {moved}), "bone matrix moves the mesh");
+    }
+
+    // HDR·후처리: 효과를 켜면 화면이 바뀌고, 같은 설정이면 반복 가능함 (스크래치 텍스처 생성·재사용 경로 포함)
+    {
+        PostProcessSettings blur, bloom, grey;
+        blur.blurEnabled = true;
+        blur.blurRadius = 8;
+        bloom.bloomEnabled = true;
+        bloom.bloomThreshold = 0; // 모든 픽셀이 밝은 부분으로 취급됨
+        bloom.bloomIntensity = 1;
+        grey.greyscale = 1;
+        const auto blurHash = render(red.mesh, red.RenderMaterial(), {}, blur);
+        Require(blurHash != redHash, "blur changes the frame");
+        Require(blurHash == render(red.mesh, red.RenderMaterial(), {}, blur), "blur is repeatable");
+        Require(render(red.mesh, red.RenderMaterial(), {}, bloom) != redHash, "bloom changes the frame");
+        Require(render(red.mesh, red.RenderMaterial(), {}, grey) != redHash, "greyscale changes the frame");
+        Require(render(red.mesh, red.RenderMaterial()) == redHash, "effects off draws like before");
     }
 }
 

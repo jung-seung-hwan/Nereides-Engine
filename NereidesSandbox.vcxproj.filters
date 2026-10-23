@@ -71,6 +71,9 @@
     <ClCompile Include="src\Renderer\Renderer.cpp">
       <Filter>Source Files\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\Renderer\RendererPost.cpp">
+      <Filter>Source Files\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\Renderer\RenderTestScene.cpp">
       <Filter>Source Files\Renderer</Filter>
     </ClCompile>
@@ -191,6 +194,9 @@
       <Filter>Header Files\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Renderer\Material.h">
+      <Filter>Header Files\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Renderer\PostProcessSettings.h">
       <Filter>Header Files\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Renderer\RenderComponents.h">
