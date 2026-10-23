@@ -4,6 +4,9 @@ Windows / C++20 / DirectX 11 공통 엔진 기반과 편집용 샌드박스다. 
 
 ## 어디서부터 읽을까
 
+- [작업 시작 안내](AGENTS.md): 세션에서 확인할 문서와 작업 방식.
+- [공용 작업 규칙](docs/development/vibe-coding-rules.md): 작업 단위·기준 유지·검증·인계 원칙.
+- [현재 작업 상태](docs/development/current-status.md): 현재 목표·확정 사항·남은 일·다음 행동.
 - [단계별 구현 로드맵](docs/implementation-roadmap.md): 진행 상태와 각 단계의 읽기 순서·실행·검증 기록.
 - [엔진 구현 범위](docs/engine-scope.md): 기획 기준, 엔진·렌더·콘텐츠 담당 경계.
 - [콘텐츠와 렌더 연결 안내](docs/integration-contracts.md): 현재 API·수명·프레임 순서와 남은 통합.
@@ -16,6 +19,7 @@ Windows / C++20 / DirectX 11 공통 엔진 기반과 편집용 샌드박스다. 
 | src/ | 엔진·게임 C++ 코드와 내장 셰이더. Tests는 검증 코드, Sandbox는 사용 예제 | 포함 |
 | scripts/ | 의존성 설치·프로젝트 동기화·빌드 검증·배포 자동화 PowerShell 스크립트. 게임 동작 코드는 src에 작성 | 포함 |
 | docs/ | 구현·사용·협업 문서 | 포함 |
+| docs/development/ | 공용 작업 규칙과 현재 작업·인계 기록 | 포함 |
 | docs/planning/ | 게임 기획서·기술검토서·역할 분담 등 원본 문서 | 포함 |
 | docs/references/ | 기획과 외형 검토용 참고 이미지 | 포함 |
 | docs/images/ | 문서에 사용하는 에디터 화면 이미지 | 포함 |
