@@ -2,6 +2,7 @@
 #include "Sandbox/MoveComponent.h"
 #include "Collision/Collision.h"
 #include "Data/SceneIO.h"
+#include "Renderer/RenderComponents.h"
 #include <cmath>
 #include <set>
 #include <stdexcept>
@@ -50,7 +51,7 @@ void ComponentRegistry::Register(ComponentType type)
         m_types.contains(type.name))
         throw std::runtime_error("Invalid/duplicate component registration: " + type.name);
     // 전용 직렬화 키는 해당 실제 타입만 사용할 수 있다.
-    if ((type.name == "cube" && type.cppType != typeid(MeshComponent)) ||
+    if (((type.name == "cube" || type.name == "sphere") && type.cppType != typeid(MeshComponent)) ||
         (type.name == "model" && type.cppType != typeid(ModelComponent)) ||
         (type.name == "collider" && type.cppType != typeid(Collider)) ||
         (type.name == "parameters" && type.cppType != typeid(Parameters)))
@@ -139,6 +140,42 @@ ComponentRegistry& ComponentTypes()
                          typeid(MeshComponent),
                          [] { return std::make_unique<MeshComponent>(MakeCube()); },
                          {}});
+        result.Register(DescribeComponent<LightComponent>(
+            "light", "Light",
+            {EnumProperty<LightComponent, LightType>(
+                 "lightType", "Type",
+                 &LightComponent::type,
+                 {{"directional", LightType::Directional},
+                  {"point", LightType::Point},
+                  {"spot", LightType::Spot}}),
+             Property("color", "Color", &LightComponent::color, 0, 1000),
+             Property("intensity", "Intensity", &LightComponent::intensity, 0, 10000),
+             Property("range", "Range", &LightComponent::range, 0, 100000),
+             Property("attenuation", "Attenuation (const, linear, quad)",
+                      &LightComponent::attenuation, 0, 1000),
+             Property("innerConeCos", "Spot inner cone cos", &LightComponent::innerConeCos, -1, 1),
+             Property("outerConeCos", "Spot outer cone cos", &LightComponent::outerConeCos, -1, 1)}));
+        result.Register(DescribeComponent<EnvironmentComponent>(
+            "environment", "Environment",
+            {EnumProperty<EnvironmentComponent, EnvironmentPreset>(
+                 "preset", "Sky / IBL",
+                 &EnvironmentComponent::preset,
+                 {{"builtinSky", EnvironmentPreset::BuiltinSky},
+                  {"cubemapSample", EnvironmentPreset::CubemapSample},
+                  {"none", EnvironmentPreset::None}}),
+             Property("iblIntensity", "IBL intensity", &EnvironmentComponent::iblIntensity, 0, 100),
+             Property("exposure", "Exposure", &EnvironmentComponent::exposure, 0, 100),
+             Property("toneMapping", "Tone mapping", &EnvironmentComponent::toneMapping),
+             Property("blurEnabled", "Gaussian blur", &EnvironmentComponent::blurEnabled),
+             Property("blurRadius", "Blur radius (px @720p)", &EnvironmentComponent::blurRadius, 0.5f, 32),
+             Property("bloomEnabled", "Bloom", &EnvironmentComponent::bloomEnabled),
+             Property("bloomThreshold", "Bloom threshold", &EnvironmentComponent::bloomThreshold, 0, 8),
+             Property("bloomKnee", "Bloom knee", &EnvironmentComponent::bloomKnee, 0, 1),
+             Property("bloomIntensity", "Bloom intensity", &EnvironmentComponent::bloomIntensity, 0, 4),
+             Property("greyscale", "Greyscale", &EnvironmentComponent::greyscale, 0, 1),
+             Property("ambientColor", "Ambient color", &EnvironmentComponent::ambientColor, 0, 100),
+             Property("clearColor", "Clear color (linear)", &EnvironmentComponent::clearColor, 0,
+                      1)}));
         result.Register(DescribeComponent<Parameters>("parameters", "Parameters", {}));
         ComponentType model{"model", "Model Component (file...)", typeid(ModelComponent), {}, {}};
         model.createFromFile = [](ModelCache& cache, const std::filesystem::path& path) {

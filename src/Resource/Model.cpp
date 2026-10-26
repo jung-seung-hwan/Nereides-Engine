@@ -1,11 +1,13 @@
 #include "Resource/Model.h"
 #include "Core/Log.h"
+#include "Renderer/EmbeddedTextures.h"
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/config.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <stdexcept>
 #include <unordered_map>
@@ -57,7 +59,7 @@ Pose Decompose(const aiMatrix4x4& matrix)
 }
 
 
-std::string TexturePath(const aiMaterial& material, aiTextureType type,
+std::string TexturePath(const aiScene& scene, const aiMaterial& material, aiTextureType type,
                         const std::filesystem::path& path)
 {
     aiString name;
@@ -65,7 +67,23 @@ std::string TexturePath(const aiMaterial& material, aiTextureType type,
         return {};
 
     if (name.length && name.C_Str()[0] == '*')
-        return name.C_Str(); // Embedded data requires a later decoder.
+    {
+        // 내장 텍스처: 압축 이미지 바이트를 "<파일명>/<번호>"로 보관소에 등록하고 그 이름을 재질에 둠.
+        const unsigned index = static_cast<unsigned>(std::atoi(name.C_Str() + 1));
+        const auto* texture = index < scene.mNumTextures ? scene.mTextures[index] : nullptr;
+        if (!texture || texture->mHeight != 0)
+        {
+            Log::Write(LogLevel::Warning, "Embedded texture is not a compressed image: " +
+                                              std::string(name.C_Str()));
+            return {};
+        }
+
+        const std::string id = path.stem().string() + "/" + std::to_string(index);
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(texture->pcData);
+        EmbeddedTextures::Register(
+            id, std::make_shared<const std::vector<std::uint8_t>>(bytes, bytes + texture->mWidth));
+        return id;
+    }
 
     return (path.parent_path() / std::filesystem::path(name.C_Str())).lexically_normal().string();
 }
@@ -144,7 +162,8 @@ std::shared_ptr<const ModelData> ModelCache::Load(const std::filesystem::path& p
             importer.ReadFile(std::string(utf8.begin(), utf8.end()),
                               aiProcess_Triangulate | aiProcess_ConvertToLeftHanded |
                                   aiProcess_LimitBoneWeights | aiProcess_GenSmoothNormals |
-                                  aiProcess_ValidateDataStructure | aiProcess_GlobalScale);
+                                  aiProcess_CalcTangentSpace | aiProcess_ValidateDataStructure |
+                                  aiProcess_GlobalScale);
         if (!source || !source->mRootNode)
             throw std::runtime_error(importer.GetErrorString());
 
@@ -178,10 +197,53 @@ std::shared_ptr<const ModelData> ModelCache::Load(const std::filesystem::path& p
             aiGetMaterialColor(&sourceMaterial, AI_MATKEY_COLOR_DIFFUSE, &color);
             material.baseColor = {color.r, color.g, color.b, color.a};
 
-            material.baseColorTexture = TexturePath(sourceMaterial, aiTextureType_BASE_COLOR, key);
+            material.baseColorTexture = TexturePath(*source, sourceMaterial, aiTextureType_BASE_COLOR, key);
             if (material.baseColorTexture.empty())
-                material.baseColorTexture = TexturePath(sourceMaterial, aiTextureType_DIFFUSE, key);
-            material.normalTexture = TexturePath(sourceMaterial, aiTextureType_NORMALS, key);
+                material.baseColorTexture = TexturePath(*source, sourceMaterial, aiTextureType_DIFFUSE, key);
+            material.normalTexture = TexturePath(*source, sourceMaterial, aiTextureType_NORMALS, key);
+            // glTF의 metallicRoughness 텍스처는 aiTextureType_UNKNOWN 슬롯으로 들어옴 (G=거칠기, B=금속성)
+            material.metallicRoughnessTexture =
+                TexturePath(*source, sourceMaterial, aiTextureType_GLTF_METALLIC_ROUGHNESS, key);
+            material.occlusionTexture =
+                TexturePath(*source, sourceMaterial, aiTextureType_AMBIENT_OCCLUSION, key);
+            // glTF의 occlusionTexture는 Assimp 버전에 따라 LIGHTMAP 슬롯으로 들어옴
+            if (material.occlusionTexture.empty())
+                material.occlusionTexture =
+                    TexturePath(*source, sourceMaterial, aiTextureType_LIGHTMAP, key);
+            material.emissiveTexture = TexturePath(*source, sourceMaterial, aiTextureType_EMISSIVE, key);
+
+            float factor = 0;
+            // 모델 파일이 금속성/거칠기를 지정하지 않으면 비금속·중간 거칠기 기본값을 유지
+            if (sourceMaterial.Get(AI_MATKEY_METALLIC_FACTOR, factor) == AI_SUCCESS)
+                material.metallic = std::clamp(factor, 0.f, 1.f);
+            if (sourceMaterial.Get(AI_MATKEY_ROUGHNESS_FACTOR, factor) == AI_SUCCESS)
+                material.roughness = std::clamp(factor, 0.f, 1.f);
+
+            aiColor3D emissive(0, 0, 0);
+            if (sourceMaterial.Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS)
+                material.emissive = {emissive.r, emissive.g, emissive.b};
+            // 발광 텍스처가 있는데 계수가 0이면 텍스처가 보이지 않으므로 1로 둠 (glTF 기본 규칙)
+            if (!material.emissiveTexture.empty() && emissive.r == 0 && emissive.g == 0 &&
+                emissive.b == 0)
+                material.emissive = {1, 1, 1};
+
+            int twoSided = 0;
+            if (sourceMaterial.Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS)
+                material.doubleSided = twoSided != 0;
+
+            auto render = std::make_shared<Material>();
+            render->name = material.name;
+            render->baseColor = material.baseColor;
+            render->metallic = material.metallic;
+            render->roughness = material.roughness;
+            render->emissive = material.emissive;
+            render->albedoTexture = material.baseColorTexture;
+            render->normalTexture = material.normalTexture;
+            render->metallicRoughnessTexture = material.metallicRoughnessTexture;
+            render->occlusionTexture = material.occlusionTexture;
+            render->emissiveTexture = material.emissiveTexture;
+            render->doubleSided = material.doubleSided;
+            model->renderMaterials.push_back(std::move(render));
 
             model->materials.push_back(std::move(material));
         }
@@ -202,6 +264,16 @@ std::shared_ptr<const ModelData> ModelCache::Load(const std::filesystem::path& p
                     vertex.position = Vector(sourceMesh.mVertices[v]);
                     if (sourceMesh.HasNormals())
                         vertex.normal = Vector(sourceMesh.mNormals[v]);
+                    if (sourceMesh.HasTangentsAndBitangents())
+                    {
+                        const auto tangent = Vector(sourceMesh.mTangents[v]);
+                        const auto bitangent = Vector(sourceMesh.mBitangents[v]);
+                        // 손잡이: B = cross(N, T) * w 가 실제 비트탄젠트 방향과 맞는지로 정함
+                        const auto handed = XMVectorGetX(XMVector3Dot(
+                            XMVector3Cross(XMLoadFloat3(&vertex.normal), XMLoadFloat3(&tangent)),
+                            XMLoadFloat3(&bitangent)));
+                        vertex.tangent = {tangent.x, tangent.y, tangent.z, handed < 0 ? 1.f : -1.f};
+                    }
                     if (sourceMesh.HasTextureCoords(0))
                         vertex.uv = {sourceMesh.mTextureCoords[0][v].x,
                                      sourceMesh.mTextureCoords[0][v].y};
@@ -455,8 +527,8 @@ void AppendModelDraws(const ModelComponent& component, FXMMATRIX world, RenderFr
     {
         DrawItem item;
         item.mesh = part.mesh;
-        if (part.material < component.model->materials.size())
-            item.tint = component.model->materials[part.material].baseColor;
+        if (part.material < component.model->renderMaterials.size())
+            item.material = component.model->renderMaterials[part.material];
 
         if (part.bones.empty())
             XMStoreFloat4x4(&item.world, XMLoadFloat4x4(&globals.at(part.node)) * world);

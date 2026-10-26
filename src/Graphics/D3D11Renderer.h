@@ -2,20 +2,34 @@
 
 #include <Windows.h>
 #include <d3d11.h>
-#include <dxgi1_2.h>
-#include <wrl/client.h>
 #include <cstdint>
 #include "Graphics/RenderFrame.h"
-#include <map>
 #include <functional>
 #include <filesystem>
+#include <memory>
+#include <vector>
+#include "RHI/Handle.h"
+
+// Sherlock 에서 가져온 클래스 (전역 네임스페이스). 정의는 cpp 에서만 include 함.
+class Renderer;
+struct RenderSettings;
+class D3D11Device;
+namespace RHI
+{
+class Device;
+}
 
 namespace nereides
 {
+// 창 하나에 그리는 렌더러. 장치·스왑체인은 RHI::Device 가 소유하고, 장면은 Sherlock 에서 가져온 Renderer 가 그림.
+// 이 클래스는 Application/Editor 가 쓰던 호출 방식(Initialize/Resize/RenderScene/SetOverlay 등)을 그대로 유지하는 얇은 앞면임.
+//
+// 프레임 순서: BeginFrame → Renderer::Render (그림자·메인 패스) → UI 패스(overlay) → EndFrame(Present).
+// 에디터의 ImGui 는 Device()/Context() 접근자로 직접 초기화함.
 class D3D11Renderer final
 {
 public:
-    D3D11Renderer() = default;
+    D3D11Renderer();
     ~D3D11Renderer();
     D3D11Renderer(const D3D11Renderer&) = delete;
     D3D11Renderer& operator=(const D3D11Renderer&) = delete;
@@ -24,25 +38,20 @@ public:
     bool Resize(std::uint32_t width, std::uint32_t height);
     bool PrepareSceneView(std::uint32_t width, std::uint32_t height);
 
+    // 에디터 Scene 영역의 색상 텍스처. PrepareSceneView 가 만든 뒤에만 유효함.
     ID3D11ShaderResourceView* SceneView() const
     {
-        return m_sceneView.Get();
+        return m_sceneView;
     }
 
+    // --smoke-test 의 기본 삼각형. RHI 로 그림.
     bool Render(bool verifyFrame = false);
     bool RenderScene(const RenderFrame& frame, bool verifyFrame = false,
                      std::uint64_t* pixelHash = nullptr);
     void Shutdown() noexcept;
 
-    ID3D11Device* Device() const
-    {
-        return m_device.Get();
-    }
-
-    ID3D11DeviceContext* Context() const
-    {
-        return m_context.Get();
-    }
+    ID3D11Device* Device() const;
+    ID3D11DeviceContext* Context() const;
 
     void SetOverlay(std::function<void()> draw)
     {
@@ -54,54 +63,36 @@ public:
         m_capturePath = std::move(path);
     }
 
+    // 수직 동기화. 기본은 켜짐(Present(1, 0)). 성능 측정에서 끌 수 있음.
+    void SetVSync(bool enabled);
+
+    // 렌더 설정(그림자 영역·디버그 뷰 등). Initialize 이후에만 부를 수 있음.
+    RenderSettings& Settings();
+
 private:
-    bool CreateBackBuffer();
     bool CreateTriangle();
-    bool CreateMeshPipeline();
 
-    struct GpuMesh
-    {
-        std::weak_ptr<const MeshData> source;
-        Microsoft::WRL::ComPtr<ID3D11Buffer> vertices, indices;
-        UINT count = 0;
-    };
-
-    GpuMesh* Upload(const std::shared_ptr<const MeshData>& mesh);
-
-    bool VerifyTriangleFrame();
+    bool VerifyTriangleFrame(const std::vector<std::uint8_t>& rgba, std::uint32_t width,
+                             std::uint32_t height);
     bool VerifySceneView();
-    bool ReadbackHash(std::uint64_t& hash);
-    bool Check(HRESULT result, const wchar_t* operation);
+    bool AnalyzeBackBuffer(const std::vector<std::uint8_t>& rgba, std::uint32_t width,
+                           std::uint32_t height, std::uint64_t* hash);
+    bool Fail(const char* message);
 
-    /*
-    Device	    버퍼·텍스처·셰이더 등 GPU 자원 생성
-    Context	    사용할 자원과 상태를 설정하고 그리기 명령 전달
-    SwapChain	창에 표시할 화면 버퍼와 화면 제출 관리
-    */
-    Microsoft::WRL::ComPtr<ID3D11Device> m_device;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> m_swapChain;
+    std::unique_ptr<RHI::Device> m_rhi;
+    D3D11Device* m_d3d = nullptr; // m_rhi 의 구체 타입. Device()/Context() 접근자와 SRV 얻기에 씀
+    std::unique_ptr<Renderer> m_renderer;
 
-    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_renderTarget;
-    Microsoft::WRL::ComPtr<ID3D11Buffer> m_vertexBuffer;
-    Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
-    Microsoft::WRL::ComPtr<ID3D11PixelShader> m_pixelShader;
-    Microsoft::WRL::ComPtr<ID3D11InputLayout> m_inputLayout;
-    Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_depth;
-    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_sceneTarget;
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_sceneView;
-    Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_sceneDepth;
-    std::uint32_t m_sceneWidth = 0, m_sceneHeight = 0;
-    Microsoft::WRL::ComPtr<ID3D11VertexShader> m_meshVs;
-    Microsoft::WRL::ComPtr<ID3D11PixelShader> m_meshPs;
-    Microsoft::WRL::ComPtr<ID3D11InputLayout> m_meshLayout;
-    Microsoft::WRL::ComPtr<ID3D11Buffer> m_objectConstants;
-    Microsoft::WRL::ComPtr<ID3D11Buffer> m_skinConstants;
-    Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_meshRasterizer;
-    std::map<const MeshData*, GpuMesh> m_meshes;
+    // 기본 삼각형
+    ShaderHandle m_triangleVs;
+    ShaderHandle m_trianglePs;
+    BufferHandle m_triangleVertices;
+
+    ID3D11ShaderResourceView* m_sceneView = nullptr;
     std::function<void()> m_overlay;
     std::filesystem::path m_capturePath;
     std::uint32_t m_width = 0;
     std::uint32_t m_height = 0;
+    bool m_comInitialized = false; // 텍스처 로더(DirectXTex의 WIC 경로)가 COM을 요구함
 };
 } // namespace nereides

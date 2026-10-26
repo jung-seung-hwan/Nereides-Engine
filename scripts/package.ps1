@@ -9,6 +9,7 @@ if (Test-Path -LiteralPath $target) { throw 'Package directory already exists; u
 $null = New-Item -ItemType Directory -Path $target
 Get-ChildItem $source -File | Where-Object { $_.Extension -in '.exe','.dll' } | Copy-Item -Destination $target
 Copy-Item (Join-Path $source 'third-party') -Destination $target -Recurse
+Copy-Item (Join-Path $source 'Shaders') -Destination $target -Recurse
 Copy-Item (Join-Path $root 'data') -Destination $target -Recurse
 Copy-Item (Join-Path $root 'README.md') -Destination $target
 Copy-Item (Join-Path $root 'docs') -Destination $target -Recurse

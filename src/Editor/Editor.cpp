@@ -824,7 +824,11 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                     ImGui::PopID();
                 }
                 if (auto* mesh = dynamic_cast<MeshComponent*>(component))
+                {
                     m_dirty |= ImGui::ColorEdit4("Color", &mesh->tint.x);
+                    m_dirty |= ImGui::SliderFloat("Metallic", &mesh->metallic, 0.f, 1.f);
+                    m_dirty |= ImGui::SliderFloat("Roughness", &mesh->roughness, 0.f, 1.f);
+                }
                 if (auto* model = dynamic_cast<ModelComponent*>(component))
                 {
                     ImGui::TextWrapped("%s", model->model->path.c_str());

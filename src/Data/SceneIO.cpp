@@ -149,12 +149,18 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
             Json data;
             if (const auto* mesh = dynamic_cast<const MeshComponent*>(component))
             {
-                if (!mesh->mesh || !mesh->mesh->builtinCube)
+                if (!mesh->mesh || (!mesh->mesh->builtinCube && mesh->mesh->sphereRadius <= 0))
                     throw std::runtime_error("Raw mesh has no serializable source");
-                // This path supports only engine-created cube components; arbitrary meshes use
-                // ModelComponent.
-                data = {{"type", "cube"},
-                        {"tint", {mesh->tint.x, mesh->tint.y, mesh->tint.z, mesh->tint.w}}};
+                // This path supports only engine-created cube/sphere components; arbitrary meshes
+                // use ModelComponent.
+                data = {{"type", mesh->mesh->builtinCube ? "cube" : "sphere"},
+                        {"tint", {mesh->tint.x, mesh->tint.y, mesh->tint.z, mesh->tint.w}},
+                        {"metallic", mesh->metallic},
+                        {"roughness", mesh->roughness}};
+                if (!mesh->mesh->builtinCube)
+                    data["sphere"] = {{"radius", mesh->mesh->sphereRadius},
+                                      {"slices", mesh->mesh->sphereSlices},
+                                      {"stacks", mesh->mesh->sphereStacks}};
             }
             else if (const auto* model = dynamic_cast<const ModelComponent*>(component))
             {
@@ -188,9 +194,13 @@ std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player
             else
                 throw std::runtime_error("Component requires explicit serialization registration");
 
-            if (data["type"] == "cube")
+            if (data["type"] == "cube" || data["type"] == "sphere")
+            {
                 for (const auto& channel : data["tint"])
                     Number(channel, 0, 1);
+                Number(data["metallic"], 0, 1);
+                Number(data["roughness"], 0, 1);
+            }
 
             if (!types.insert(data["type"].get<std::string>()).second)
                 throw std::runtime_error("Duplicate serializable component");
@@ -306,9 +316,20 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
                 throw std::runtime_error("Duplicate component type");
 
             Component* component = nullptr;
-            if (type == "cube")
+            if (type == "cube" || type == "sphere")
             {
-                auto& mesh = object.Add<MeshComponent>(MakeCube());
+                std::shared_ptr<const MeshData> shape;
+                if (type == "cube")
+                    shape = MakeCube();
+                else
+                {
+                    const auto& sphere = data.at("sphere");
+                    const auto radius = float(Number(sphere.at("radius"), .001, 100000));
+                    const auto slices = unsigned(Number(sphere.at("slices"), 3, 512));
+                    const auto stacks = unsigned(Number(sphere.at("stacks"), 2, 512));
+                    shape = MakeSphere(radius, slices, stacks);
+                }
+                auto& mesh = object.Add<MeshComponent>(std::move(shape));
                 component = &mesh;
                 const auto& tint = data.at("tint");
                 if (tint.size() != 4)
@@ -316,6 +337,11 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
 
                 mesh.tint = {float(Number(tint[0], 0, 1)), float(Number(tint[1], 0, 1)),
                              float(Number(tint[2], 0, 1)), float(Number(tint[3], 0, 1))};
+                // 이 값이 생기기 전의 씬은 기본 재질 값을 씀
+                if (data.contains("metallic"))
+                    mesh.metallic = float(Number(data["metallic"], 0, 1));
+                if (data.contains("roughness"))
+                    mesh.roughness = float(Number(data["roughness"], 0, 1));
             }
             else if (type == "model")
             {
