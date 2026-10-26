@@ -85,6 +85,29 @@ Debug/Release 빌드 후 다음 모드를 실행하며, 실패한 종료 코드�
 
 Release 검증 후 `./scripts/package.ps1`로 새 dist 폴더에 실행 파일·DLL·고지·data를 복사한다. 외부 모델은 자동 배포하지 않는다. 새 PC에는 해당 MSVC 런타임이 필요하며 현재 패키지 검증은 이 개발 PC에서 수행했다.
 
+## 모델 재질 설정
+
+모델 로딩 시 FBX 재질을 먼저 읽고, 별도 JSON에 명시된 값만 덮어쓴다. 검색 우선순위는 모델과 같은 위치의 `<모델명>.materials.json` → 같은 폴더의 `materials.json` / `material.json`이다. 모델 폴더 이름이 `model` 또는 `models`이면 바로 위 에셋 폴더도 검색한다. 없으면 같은 폴더의 `engine_import.json`을 확인하되 `model` 이름이 일치할 때만 사용한다. 기존 검·갑판·촉수 에셋 형식을 지원한다.
+
+단일 재질은 아래 형식이며, 여러 재질은 `{ "나무": { "material": "Deck_timber", ... }, "철": { ... } }`처럼 묶는다. `material`은 FBX 재질 이름과 정확히 일치해야 한다. 텍스처 경로는 JSON 파일 위치 기준이다.
+
+```json
+{
+  "material": "Sword_PBR_UnlitEmission",
+  "basecolor": "textures/sword_basecolor.png",
+  "orm": "textures/sword_orm.png",
+  "metallic": 1.0,
+  "roughness": 1.0,
+  "emission": 0
+}
+```
+
+ORM은 선형 데이터이며 R=AO, G=거칠기, B=금속성이다. 동일한 이미지를 렌더러의 금속성·거칠기(t2)와 AO(t3)에 연결한다. ORM 지정 시 두 계수를 1로 두고, JSON의 명시적인 계수가 있으면 그 값으로 덮어쓴다. 분리된 `metallic_texture` / `roughness_texture`도 지원하며 같은 크기의 WIC 이미지(PNG/BMP 등) R 채널을 읽어 로딩 시 ORM으로 합친다. 이때 AO는 1이다. 원본 파일은 변경하지 않는다.
+
+`normal`을 지정하면 해당 파일을 사용하며, 없으면 FBX의 노멀 연결을 보존한다. `normal_opengl` / `normal_directx` 이름만으로 방향을 자동 선택하지 않는다. `basecolor_factor`는 RGBA 4개, `emissive_texture`는 발광 색 텍스처, `emission` 또는 `emission_strength`는 발광 배율이다. 발광 텍스처가 없으면 기본 색에 배율을 곱한다. 명시적인 0은 발광을 끈다. `engine_import.json`의 `preview_strength`는 런타임 값으로 적용하지 않는다.
+
+잘못된 설정·누락된 텍스처·서로 다른 크기의 분리 맵은 모델 로딩 실패와 로그로 보고한다. 대응하지 않는 재질 이름은 경고를 남긴다. 설정 파일이 없으면 기존 FBX 로딩을 유지한다. 같은 모델 경로의 완성된 재질은 객체 간에 공유하며, 실행 중 JSON 변경의 자동 재로딩이나 객체별 재질 편집은 지원하지 않는다. 수정 후 앱을 다시 실행하면 새 설정을 읽는다. 씬 저장은 기존 모델 경로를 유지하므로 모델과 설정·텍스처를 함께 공유해야 한다.
+
 ## 고정 갱신
 
 게임 계산은 기본 50Hz(0.02초), 화면 출력은 렌더 프레임마다 실행한다. `src/Core/Time.h`의 `FixedStep::DefaultHz`를 수정하면 기본 주기를 바꿀 수 있다. 한 프레임에 최대 8회 따라잡고 초과 시간은 버리며, 정지·전환에서 누적 시간과 이전 입력을 정리한다. 렌더 보간은 아직 없다.

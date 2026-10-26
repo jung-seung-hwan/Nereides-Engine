@@ -1,10 +1,29 @@
 #include "Core/Application.h"
 #include "Tests/EngineTests.h"
 #include "Core/Log.h"
+#include <DirectXTex.h>
 #include <string_view>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int showCommand)
 {
+    // 모델 재질의 WIC 디코딩은 렌더러 생성 전에도 실행된다.
+    // DirectXTex가 공유하는 WIC 팩토리보다 COM을 오래 유지한다.
+    struct ImagingApartment
+    {
+        HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        ~ImagingApartment()
+        {
+            DirectX::SetWICFactory(nullptr);
+            if (SUCCEEDED(result))
+                CoUninitialize();
+        }
+    } imaging;
+    if (FAILED(imaging.result) && imaging.result != RPC_E_CHANGED_MODE)
+    {
+        nereides::Log::Write(nereides::LogLevel::Error, "Cannot initialize image decoding COM apartment");
+        return 1;
+    }
+
     // Resolve project/data relative paths consistently for VS, Explorer, and packaged runs.
     wchar_t executable[32768]{};
     const DWORD length = GetModuleFileNameW(nullptr, executable, 32768);

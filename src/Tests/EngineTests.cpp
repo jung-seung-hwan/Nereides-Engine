@@ -6,6 +6,8 @@
 #include "Scene/Scene.h"
 #include "Graphics/RenderFrame.h"
 #include "Resource/Model.h"
+#include "Resource/ModelMaterials.h"
+#include "Renderer/EmbeddedTextures.h"
 #include "Animation/Timeline.h"
 #include "Graphics/D3D11Renderer.h"
 #include "Platform/Win32Window.h"
@@ -729,6 +731,87 @@ void TestModelCache()
     cache.Prune();
     Require(weak.expired(), "cache does not retain unused model");
     std::filesystem::remove(path);
+}
+
+
+void TestMaterialSettings()
+{
+    struct Apartment
+    {
+        HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        ~Apartment() { if (SUCCEEDED(result)) CoUninitialize(); }
+    } apartment;
+    Require(SUCCEEDED(apartment.result) || apartment.result == RPC_E_CHANGED_MODE,
+            "material test COM initialization");
+    const auto folder = std::filesystem::absolute("logs/material-settings-test");
+    std::filesystem::create_directories(folder / "model");
+    const auto modelPath = folder / "model/triangle.obj";
+    const auto settings = folder / "material.json";
+    // 1x1 BMP의 R/G/B를 다르게 만들어 채널 오배치와 감마 변환을 검출한다.
+    auto image = [&](const char* name, unsigned char red) {
+        unsigned char bmp[58] = {'B', 'M', 58};
+        bmp[10] = 54; bmp[14] = 40; bmp[18] = 1; bmp[22] = 1;
+        bmp[26] = 1; bmp[28] = 24;
+        bmp[54] = 17; bmp[55] = 31; bmp[56] = red;
+        std::ofstream file(folder / name, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(bmp), sizeof(bmp));
+    };
+    image("metal.bmp", 192);
+    image("rough.bmp", 64);
+    auto write = [&](const nlohmann::json& json) { std::ofstream(settings) << json.dump(); };
+    MaterialData original;
+    original.name = "Sword";
+    original.normalTexture = "preserved-normal";
+    original.emissive = {1, 1, 1};
+    std::vector<MaterialData> materials{original};
+    write({{"material", "Sword"}, {"orm", "metal.bmp"}, {"emission", 0}});
+    ApplyModelMaterials(modelPath, materials);
+    Require(materials[0].metallic == 1 && materials[0].roughness == 1 &&
+            materials[0].occlusionTexture == materials[0].metallicRoughnessTexture,
+            "ORM connects both slots and neutral factors");
+    Require(materials[0].normalTexture == "preserved-normal" && materials[0].emissive.x == 0,
+            "absent fields preserved and explicit zero emission respected");
+    Require(std::filesystem::equivalent(materials[0].occlusionTexture, folder / "metal.bmp"),
+            "texture paths are relative to settings, not model or working directory");
+    write({{"material", "Sword"}, {"metallic_texture", "metal.bmp"},
+           {"roughness_texture", "rough.bmp"}, {"roughness", 0.25}});
+    ApplyModelMaterials(modelPath, materials);
+    const auto bytes = EmbeddedTextures::Find(materials[0].metallicRoughnessTexture);
+    TextureImage decoded;
+    Require(bytes && TextureLoader::LoadFromMemory(bytes->data(), bytes->size(), false, false, decoded),
+            "generated ORM uses existing renderer decoder");
+    Require(decoded.pixels[0] == 255 && decoded.pixels[1] == 64 && decoded.pixels[2] == 192 &&
+            Near(materials[0].roughness, 0.25), "ORM channel packing is linear and factors override defaults");
+    write({{"material", "Other"}, {"roughness", 0.9}});
+    ApplyModelMaterials(modelPath, materials);
+    Require(Near(materials[0].roughness, 0.25), "unmatched names do not alter another material");
+    write({{"material", "Sword"}, {"basecolor", "missing.png"}});
+    bool rejected = false;
+    try { ApplyModelMaterials(modelPath, materials); }
+    catch (const std::exception&) { rejected = true; }
+    Require(rejected && Near(materials[0].roughness, 0.25), "missing texture rejects settings atomically");
+    std::ofstream(settings) << "{invalid json";
+    rejected = false;
+    try { ApplyModelMaterials(modelPath, materials); }
+    catch (const std::exception&) { rejected = true; }
+    Require(rejected, "malformed material JSON is not silently ignored");
+    {
+        std::ofstream file(modelPath);
+        file << "o triangle\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+    }
+    // 모델별 파일이 공통 파일보다 우선하며 ModelCache의 렌더 재질에도 적용된다.
+    const auto specific = folder / "model/triangle.materials.json";
+    std::ofstream(specific) << nlohmann::json({{"material", "DefaultMaterial"},
+                                             {"orm", "../metal.bmp"}}).dump();
+    ModelCache cache;
+    const auto model = cache.Load(modelPath);
+    Require(!model->renderMaterials.empty() && model->renderMaterials[0]->metallic == 1 &&
+            !model->renderMaterials[0]->metallicRoughnessTexture.empty(),
+            "sidecar reaches immutable renderer material through ModelCache");
+    for (const auto& path : {specific, modelPath, settings, folder / "metal.bmp", folder / "rough.bmp"})
+        std::filesystem::remove(path);
+    std::filesystem::remove(folder / "model");
+    std::filesystem::remove(folder);
 }
 
 
@@ -1471,6 +1554,7 @@ int RunEngineTests()
         TestRenderInput();
         TestAnimation();
         TestModelCache();
+        TestMaterialSettings();
         TestCollision();
         TestSceneIO();
         TestReflection();

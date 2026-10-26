@@ -103,6 +103,7 @@
     <ClCompile Include="src\Renderer\SherlockSceneImport.cpp" />
     <ClCompile Include="src\Renderer\TextureLoader.cpp" />
     <ClCompile Include="src\Resource\Model.cpp" />
+    <ClCompile Include="src\Resource\ModelMaterials.cpp" />
     <ClCompile Include="src\RHI\Compat\SherlockLog.cpp" />
     <ClCompile Include="src\RHI\Compat\SherlockPaths.cpp" />
     <ClCompile Include="src\RHI\D3D11\D3D11CommandList.cpp" />
@@ -150,6 +151,7 @@
     <ClInclude Include="src\Renderer\TextureLoader.h" />
     <ClInclude Include="src\Renderer\VertexTypes.h" />
     <ClInclude Include="src\Resource\Model.h" />
+    <ClInclude Include="src\Resource\ModelMaterials.h" />
     <ClInclude Include="src\RHI\BindingTypes.h" />
     <ClInclude Include="src\RHI\CommandList.h" />
     <ClInclude Include="src\RHI\Compat\RHICommon.h" />

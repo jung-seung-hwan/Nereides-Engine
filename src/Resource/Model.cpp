@@ -1,4 +1,5 @@
 #include "Resource/Model.h"
+#include "Resource/ModelMaterials.h"
 #include "Core/Log.h"
 #include "Renderer/EmbeddedTextures.h"
 #include <assimp/Importer.hpp>
@@ -231,6 +232,13 @@ std::shared_ptr<const ModelData> ModelCache::Load(const std::filesystem::path& p
             if (sourceMaterial.Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS)
                 material.doubleSided = twoSided != 0;
 
+            model->materials.push_back(std::move(material));
+        }
+
+        // FBX 기본값을 읽은 뒤 에셋 설정을 보완하고, 완성된 불변 재질을 공유한다.
+        ApplyModelMaterials(key, model->materials);
+        for (const auto& material : model->materials)
+        {
             auto render = std::make_shared<Material>();
             render->name = material.name;
             render->baseColor = material.baseColor;
@@ -244,8 +252,6 @@ std::shared_ptr<const ModelData> ModelCache::Load(const std::filesystem::path& p
             render->emissiveTexture = material.emissiveTexture;
             render->doubleSided = material.doubleSided;
             model->renderMaterials.push_back(std::move(render));
-
-            model->materials.push_back(std::move(material));
         }
 
         for (unsigned node = 0; node < nodeSources.size(); ++node)
