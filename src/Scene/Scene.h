@@ -128,6 +128,8 @@ public:
     // 모든 부착 경로에서 실제 C++ 타입당 하나만 허용한다. 비활성도 중복이다.
     // 삭제 예약된 인스턴스는 제외하므로 Flush 전에도 교체할 수 있다.
     // 실패 시 전달받은 새 인스턴스는 해제되고 기존 구성은 유지된다.
+    // -> 여러 개 부착이 필요해지면 타입별 허용 플래그(AllowMultiple) + GetAll<T>() 추가 검토
+    //    (Get/Remove<T>는 첫 항목만 다루므로 함께 수정, 저장/에디터에서 같은 타입 구분 방식도 필요)
     Component& AddComponent(std::unique_ptr<Component> component)
     {
         if (!component)

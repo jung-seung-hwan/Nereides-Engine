@@ -29,7 +29,9 @@ Object& Scene::Create(std::string name)
 
 
 // ID로 객체 검색
-// -> 추후 에디터 설정(태그) 기반으로 검색하는 기능 추가 필요 / 선형 기반 검색 개선 필요
+// -> 추후 에디터 설정(태그) 기반으로 검색하는 기능 추가 필요
+// 현재는 객체 수가 적어 선형 검색(O(n)) 사용. Active()/World()가 부모마다 호출하므로 tick 수만큼 비용 증가
+// -> 객체 수가 늘어나거나 m_objects 정렬(ID 순서)을 바꾸는 기능이 추가되면 Find 로직 변경 필요 (이진 검색 / 해시맵 등)
 Object* Scene::Find(ObjectId id) const noexcept
 {
     for (const auto& object : m_objects)

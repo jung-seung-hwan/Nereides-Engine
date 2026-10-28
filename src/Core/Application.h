@@ -16,6 +16,7 @@ struct RunOptions
          benchmark = false;
 };
 
+// final로 선언해 Application은 상속하지 못하게 막음
 class Application final
 {
 public:
@@ -33,6 +34,7 @@ public:
 
 private:
     // Reverse destruction releases GPU resources before the window.
+    // 생성된 멤버는 선언의 역순으로 해제된다
     Input m_input;
     Time m_time;
     Win32Window m_window;
