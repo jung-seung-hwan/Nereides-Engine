@@ -12,7 +12,7 @@
 namespace nereides
 {
 // 콘텐츠의 피해·파괴 우선순위는 이 결과 처리 지점에 연결한다.
-// 현재 샌드박스는 후보를 로그로만 표시한다.
+// 계산이 끝난 충돌 목록을 받아 게임 규칙을 적용, 결과는 반환하지 않고 장면이나 이벤트에 직접 반영 (현재는 트리거 진입 로그만 출력)
 void Application::ResolveContacts(const std::vector<Contact>& contacts)
 {
     for (const auto& contact : contacts)
@@ -35,6 +35,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         return 1;
 
     // 성능 측정에서 NEREIDES_VSYNC=0 이면 수직 동기화를 꺼 프레임 비용을 그대로 잼
+    // NEREIDES_VSYNC=1이면 수직 동기화를 사용해서 화면 주사율과 게임 fps를 동기화
     if (options.benchmark)
     {
         char vsync[8] = {};
@@ -53,6 +54,8 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     player.transform.position = {0, 1, 0};
     player.Add<MeshComponent>(cube).tint = {.85f, .65f, .3f, 1};
     player.Add<Collider>().mask = 2;
+
+    // 충돌 트리거 테스트용
     auto& target = m_scene.Create("Contact example");
     target.transform.position = {2, 1, 0};
     target.Add<MeshComponent>(cube).tint = {.65f, .25f, .3f, 1};
@@ -74,6 +77,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     const bool editorEnabled = options.editor;
     if (editorEnabled)
     {
+        // ImGui 생성 후 창과 렌더러의 GPU에 연결
         if (!m_editor.Initialize(m_window.Handle(), m_renderer))
             return 1;
 
@@ -86,16 +90,17 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
             m_editor.StartPreview();
     }
 
+    // 장면 실행
     if (!editorEnabled)
         m_scene.BeginPlay();
 
     // 경과 시간 측정
-    auto previous = std::chrono::steady_clock::now();
-    int exitCode = 0;
-    bool frameVerified = false;
-    std::vector<double> frameMilliseconds;
-    FixedStep fixed;
-    bool wasSimulating = false;
+    auto previous = std::chrono::steady_clock::now();       // 직전 프레임 시각 (delta time 계산용)
+    int exitCode = 0;                                       // WM_QUIT 저장용
+    bool frameVerified = false;                             // 첫프레임 픽셀 검증 여부
+    std::vector<double> frameMilliseconds;                  // 벤치마크용 프레임 시간 기록
+    FixedStep fixed;                                        // 프레임별로 tick을 몇 번 계산할지
+    bool wasSimulating = false;                             // 상태 변경 체크
 
     // 프로그램 실행 루프
     while (true)
@@ -103,6 +108,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         // 반복 시간 측정용
         const auto frameStart = std::chrono::steady_clock::now();
         m_input.BeginFrame();
+        // os 메세지 처리 - 키 입력 -> m_input, 크기 변경 -> 창 크기. WM_QUIT -> 루프 break
         if (!m_window.ProcessMessages(exitCode))
             break;
         const auto now = std::chrono::steady_clock::now();
@@ -118,6 +124,8 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
             fixed.Reset();
             wasSimulating = false;
             m_input.DiscardHeld();
+
+            // 최소화 시 메시지 올 때까지 스레드 대기
             WaitMessage();
 
             // 대기 시간 제외하기 위해 기준 시간 초기화
@@ -145,13 +153,20 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
             Log::Write(LogLevel::Info, m_time.paused ? "Paused" : "Resumed");
         }
 
+        // 정지 판정
+        // ESC로(메뉴) 일시정지
         const bool menuPause = m_time.paused;
+
+        // 연출 시에 전투 정지
         const bool presentationBlocked = editorEnabled && m_editor.BlocksCombat();
         if (presentationBlocked != m_time.combatStopped || presentationBlocked)
             m_input.DiscardHeld();
 
         m_time.combatStopped = presentationBlocked;
         m_time.paused = menuPause || (!smokeTest && !m_window.IsFocused());
+
+        // 고정 tick을 돌릴지를 경정 (에디터 없이 실행하거나 에디터 play 시 and 정지 x and 연출 진행 x)
+        // 고정 tick을 사용하는 이유 - 이동, 충돌, 전투 판정 같은 계산을 일정하지 않은 기존 프레임 간격이 아닌 고정 프레임으로 계산해서 재현성과 안정성 보장
         const bool simulating =
             (!editorEnabled || m_editor.Playing()) && !m_time.paused && !presentationBlocked;
         const bool restartStep = sceneReplaced || simulating != wasSimulating ||
