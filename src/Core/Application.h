@@ -42,8 +42,6 @@ private:
     Editor m_editor;
     Scene m_scene;
     ObjectId m_player = 0;
-    ObjectId m_camera = 0;
-    Camera m_cameraData;
     CollisionWorld m_collision;
     Events m_events;
     void ResolveContacts(const std::vector<Contact>& contacts);

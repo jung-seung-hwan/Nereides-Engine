@@ -68,8 +68,8 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     ground.transform.position = {0, -.4f, 1};
     ground.Add<MeshComponent>(cube).tint = {.12f, .35f, .4f, 1};
     auto& camera = m_scene.Create("Example camera");
-    m_camera = camera.Id();
     camera.transform.position = {0, 1, -6};
+    camera.Add<CameraComponent>();
     auto& parameters = target.Add<Parameters>();
     parameters.values["Example weakpoint duration"] = {5, 0.1, 60};
 
@@ -101,6 +101,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
     std::vector<double> frameMilliseconds;                  // 벤치마크용 프레임 시간 기록
     FixedStep fixed;                                        // 프레임별로 tick을 몇 번 계산할지
     bool wasSimulating = false;                             // 상태 변경 체크
+    bool missingCameraReported = false;                     // 카메라 없음 경고 중복 방지
 
     // 프로그램 실행 루프
     while (true)
@@ -137,7 +138,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         const bool wasPlaying = editorEnabled && m_editor.Playing();
         bool sceneReplaced = false;
         if (editorEnabled &&
-            m_editor.Begin(m_scene, m_camera, m_player, m_cameraData, m_time, m_input, m_collision))
+            m_editor.Begin(m_scene, m_player, m_time, m_input, m_collision))
         {
             sceneReplaced = true;
             m_events.Reset();
@@ -225,7 +226,7 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
 
         // 디버그 표시
         if (editorEnabled)
-            m_editor.DrawDebug(m_scene, m_camera, m_cameraData, m_collision);
+            m_editor.DrawDebug(m_scene, m_collision);
         if (editorTest && m_time.frame == 3)
             m_renderer.RequestCapture("captures/editor.bmp");
         if (presentationTest && m_time.frame == 30)
@@ -241,7 +242,12 @@ int Application::Run(HINSTANCE instance, int showCommand, const RunOptions& opti
         }
         else
         {
-            auto frame = CollectRenderFrame(m_scene, m_camera, m_cameraData,
+            // 에디터 없이 실행할 때 켜진 카메라가 없으면 기본 시점으로 그리고 한 번만 알린다.
+            const bool hasCamera = FindActiveCamera(m_scene) != 0;
+            if (!editorEnabled && !hasCamera && !missingCameraReported)
+                Log::Write(LogLevel::Warning, "No active CameraComponent; using default view");
+            missingCameraReported = !hasCamera;
+            auto frame = CollectRenderFrame(m_scene,
                                             float(m_window.Width()) / float(m_window.Height()),
                                             m_time.combat.elapsed);
             if (editorEnabled)

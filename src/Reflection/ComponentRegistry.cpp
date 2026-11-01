@@ -176,6 +176,14 @@ ComponentRegistry& ComponentTypes()
              Property("ambientColor", "Ambient color", &EnvironmentComponent::ambientColor, 0, 100),
              Property("clearColor", "Clear color (linear)", &EnvironmentComponent::clearColor, 0,
                       1)}));
+        result.Register(DescribeComponent<CameraComponent>(
+            "camera", "Camera",
+            {Property("fov", "Vertical FOV (degrees)", &CameraComponent::verticalFovDegrees, 1,
+                      179),
+             Property("near", "Near plane", &CameraComponent::nearPlane, .001, 1e6),
+             Property("far", "Far plane", &CameraComponent::farPlane, .001, 1e6),
+             Property("priority", "Priority (highest active wins)", &CameraComponent::priority,
+                      -1000, 1000)}));
         result.Register(DescribeComponent<Parameters>("parameters", "Parameters", {}));
         ComponentType model{"model", "Model Component (file...)", typeid(ModelComponent), {}, {}};
         model.createFromFile = [](ModelCache& cache, const std::filesystem::path& path) {

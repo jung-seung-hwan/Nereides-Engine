@@ -315,8 +315,8 @@ void Editor::ApplyView(RenderFrame& frame) const
 
 
 // UI 구성·사용자 조작 처리 → 필요하면 장면 교체
-bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& camera, Time& time,
-                   Input& input, CollisionWorld& collision)
+bool Editor::Begin(Scene& scene, ObjectId& player, Time& time, Input& input,
+                   CollisionWorld& collision)
 {
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -326,7 +326,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     bool replaced = false;
     if (!m_historyReady)
     {
-        m_history.Reset(SceneIO::Encode(scene, cameraId, player, camera));
+        m_history.Reset(SceneIO::Encode(scene, player));
         m_historyReady = true;
         m_selected = player;
     }
@@ -338,7 +338,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
 
     // 현재 장면 상태를 직렬화하고 편집 기록에 추가
     auto commit = [&] {
-        m_history.Commit(SceneIO::Encode(scene, cameraId, player, camera));
+        m_history.Commit(SceneIO::Encode(scene, player));
         m_dirty = m_history.Dirty();
     };
 
@@ -347,12 +347,10 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
         return std::size_t(std::find(ids.begin(), ids.end(), m_selected) - ids.begin());
     };
 
-    // 장면 교체 시점에 호출 → 장면, 카메라, 플레이어, 카메라 데이터, 선택 항목 복원
+    // 장면 교체 시점에 호출 → 장면, 플레이어, 선택 항목 복원
     auto restore = [&](LoadedScene loaded, std::size_t selection) {
         scene = std::move(loaded.scene);
-        cameraId = loaded.camera;
         player = loaded.player;
-        camera = loaded.cameraData;
         const auto ids = scene.Objects();
         m_selected = selection < ids.size() ? ids[selection] : 0;
         m_transition.Reset();
@@ -388,7 +386,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
             }
 
             commit();
-            SceneIO::Save(scene, cameraId, player, destination, camera);
+            SceneIO::Save(scene, player, destination);
             strcpy_s(m_scenePath, Utf8(destination).c_str());
             m_hasScenePath = true;
             m_history.MarkSaved();
@@ -494,6 +492,11 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                     m_playing = scene.Playing();
                     if (!m_playing)
                         restore(SceneIO::Decode(m_playSnapshot, m_models), m_playSelection);
+                    else if (!FindActiveCamera(scene))
+                    {
+                        m_status = "No active Camera component: Play shows the editor view.";
+                        Log::Write(LogLevel::Warning, m_status);
+                    }
                 }
                 catch (...)
                 {
@@ -560,8 +563,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                         throw std::runtime_error("Scene path is too long");
 
                     auto loaded = SceneIO::Load(path, m_models);
-                    const auto encoded = SceneIO::Encode(loaded.scene, loaded.camera, loaded.player,
-                                                         loaded.cameraData);
+                    const auto encoded = SceneIO::Encode(loaded.scene, loaded.player);
                     restore(std::move(loaded), 0);
                     strcpy_s(m_scenePath, text.c_str());
                     m_hasScenePath = true;
@@ -626,8 +628,8 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
     }
 
     ImGui::SameLine();
-    const bool canDelete = scene.Find(m_selected) && !ContainsRole(scene, m_selected, cameraId) &&
-                           !ContainsRole(scene, m_selected, player);
+    // 카메라 객체는 삭제할 수 있다. 켜진 카메라가 없으면 Play는 편집 시점으로 보여 준다.
+    const bool canDelete = scene.Find(m_selected) && !ContainsRole(scene, m_selected, player);
     ImGui::BeginDisabled(!canDelete);
     if (ImGui::Button("Delete"))
     {
@@ -822,6 +824,14 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                     }
                     rememberControl("property:" + type->name + ":" + property.name);
                     ImGui::PopID();
+                }
+                if (const auto* camera = dynamic_cast<const CameraComponent*>(component))
+                {
+                    if (!camera->PlanesValid())
+                        ImGui::TextColored({1, .45f, .3f, 1},
+                                           "Far plane must be greater than near plane.");
+                    if (FindActiveCamera(scene) == m_selected)
+                        ImGui::TextDisabled("Active game camera");
                 }
                 if (auto* mesh = dynamic_cast<MeshComponent*>(component))
                 {
@@ -1129,10 +1139,7 @@ bool Editor::Begin(Scene& scene, ObjectId& cameraId, ObjectId& player, Camera& c
                                                             std::max(.001f, m_distance * .0001f),
                                                             std::max(500.f, m_distance * 20)));
     if (m_playing)
-    {
-        XMStoreFloat4x4(&m_view, camera.View(scene, cameraId));
-        XMStoreFloat4x4(&m_projection, camera.Projection(size.x / size.y));
-    }
+        ApplyGameCamera(scene);
 
     m_sceneDrawList = ImGui::GetWindowDrawList();
     m_sceneDrawList->PushClipRect(origin, {origin.x + size.x, origin.y + size.y}, true);
@@ -1201,11 +1208,23 @@ void Editor::Render()
 }
 
 
-void Editor::DrawDebug(const Scene& scene, ObjectId cameraId, const Camera& camera,
-                       const CollisionWorld& collision)
+// Play 중 게임 카메라로 시점을 바꾼다. 켜진 카메라가 없으면 편집 시점을 그대로 둔다.
+void Editor::ApplyGameCamera(const Scene& scene)
 {
+    const auto id = FindActiveCamera(scene);
+    if (!id)
+        return;
+    XMStoreFloat4x4(&m_view, CameraView(scene, id));
+    XMStoreFloat4x4(&m_projection, scene.Find(id)->Get<CameraComponent>()->Projection(
+                                       std::max(.1f, m_viewSize.x / m_viewSize.y)));
+}
+
+
+void Editor::DrawDebug(const Scene& scene, const CollisionWorld& collision)
+{
+    // tick에서 카메라가 움직였을 수 있으므로 그리기 직전에 다시 읽는다.
     if (m_playing)
-        XMStoreFloat4x4(&m_view, camera.View(scene, cameraId));
+        ApplyGameCamera(scene);
     if (!m_sceneDrawList)
         return;
 

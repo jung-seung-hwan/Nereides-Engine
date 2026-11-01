@@ -108,25 +108,16 @@ std::unique_ptr<Component> DecodeProperties(const Json& data, const ComponentTyp
 } // namespace
 
 
-std::string SceneIO::Encode(const Scene& scene, ObjectId camera, ObjectId player,
-                            const Camera& cameraData)
+std::string SceneIO::Encode(const Scene& scene, ObjectId player)
 {
-    if (!scene.Find(camera) || (player && !scene.Find(player)))
+    if (player && !scene.Find(player))
         throw std::runtime_error("Scene role references missing object");
 
     std::map<ObjectId, ObjectId> ids{{0, 0}};
 
     for (auto id : scene.Objects())
         ids[id] = ids.size();
-    Json file = {{"version", 1},
-                 {"camera", ids.at(camera)},
-                 {"player", ids.at(player)},
-                 {"objects", Json::array()}};
-    cameraData.Projection(1);
-    cameraData.View(scene, camera);
-    file["cameraSettings"] = {{"fov", cameraData.verticalFov},
-                              {"near", cameraData.nearPlane},
-                              {"far", cameraData.farPlane}};
+    Json file = {{"version", Version}, {"player", ids.at(player)}, {"objects", Json::array()}};
     for (auto id : scene.Objects())
     {
         const auto& object = *scene.Find(id);
@@ -228,10 +219,9 @@ Encode로 문자열 생성
  → 기록 성공 확인
  → 임시 파일을 최종 경로로 교체
 */
-void SceneIO::Save(const Scene& scene, ObjectId camera, ObjectId player,
-                   const std::filesystem::path& path, const Camera& cameraData)
+void SceneIO::Save(const Scene& scene, ObjectId player, const std::filesystem::path& path)
 {
-    const auto encoded = Encode(scene, camera, player, cameraData);
+    const auto encoded = Encode(scene, player);
     if (!path.parent_path().empty())
         std::filesystem::create_directories(path.parent_path());
     auto temporary = path;
@@ -281,7 +271,8 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
         throw std::runtime_error("Scene exceeds 16 MiB");
 
     const auto file = Json::parse(text);
-    if (file.at("version") != 1)
+    const int version = file.at("version").is_number_integer() ? file.at("version").get<int>() : 0;
+    if (version != 1 && version != Version)
         throw std::runtime_error("Unsupported scene version");
 
     const auto& entries = file.at("objects");
@@ -390,21 +381,39 @@ LoadedScene SceneIO::Decode(const std::string& text, ModelCache& cache)
                     throw std::runtime_error("World transform overflow");
     }
 
-    const auto camera = file.at("camera").get<ObjectId>(),
-               player = file.at("player").get<ObjectId>();
-    if (!remap.contains(camera) || (player && !remap.contains(player)))
-        throw std::runtime_error("Missing camera/player role");
-
-    result.camera = remap.at(camera);
+    const auto player = file.at("player").get<ObjectId>();
+    if (player && !remap.contains(player))
+        throw std::runtime_error("Missing player role");
     result.player = player ? remap.at(player) : 0;
-    const auto& cameraSettings = file.at("cameraSettings");
-    result.cameraData.verticalFov = float(Number(cameraSettings.at("fov"), .01, 3.13));
-    result.cameraData.nearPlane = float(Number(cameraSettings.at("near"), .001, 1e6));
-    result.cameraData.farPlane = float(Number(cameraSettings.at("far"), .001, 1e6));
-    result.cameraData.Projection(1);
-    result.cameraData.View(
-        result.scene,
-        result.camera); // Reject singular inherited camera transforms before replacing live scene.
+
+    // version 1: 최상위 camera 역할과 cameraSettings(시야각 라디안)를 CameraComponent로 옮긴다.
+    if (version == 1)
+    {
+        const auto camera = file.at("camera").get<ObjectId>();
+        if (!remap.contains(camera))
+            throw std::runtime_error("Missing camera role");
+        const auto& settings = file.at("cameraSettings");
+        auto& component = result.scene.Find(remap.at(camera))->Add<CameraComponent>();
+        component.verticalFovDegrees =
+            DirectX::XMConvertToDegrees(float(Number(settings.at("fov"), .01, 3.13)));
+        component.nearPlane = float(Number(settings.at("near"), .001, 1e6));
+        component.farPlane = float(Number(settings.at("far"), .001, 1e6));
+        if (!component.PlanesValid())
+            throw std::runtime_error("Invalid camera near/far planes");
+    }
+
+    // 현재 씬을 교체하기 전에 부모 크기 등으로 방향이 무너진 카메라를 거부한다.
+    for (auto id : result.scene.Objects())
+        if (result.scene.Find(id)->Get<CameraComponent>())
+            try
+            {
+                CameraView(result.scene, id);
+            }
+            catch (const std::exception&)
+            {
+                throw std::runtime_error("Camera transform is singular: " +
+                                         result.scene.Find(id)->Name());
+            }
     return result;
 }
 } // namespace nereides

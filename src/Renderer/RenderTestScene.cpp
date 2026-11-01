@@ -30,7 +30,7 @@ int RunRenderTestScene(const std::filesystem::path& scenePath)
         ModelCache models;
         auto imported = ImportSherlockScene(scenePath, models);
         const auto output = std::filesystem::path("data/scenes") / scenePath.filename();
-        SceneIO::Save(imported.scene, imported.camera, imported.player, output, imported.cameraData);
+        SceneIO::Save(imported.scene, imported.player, output);
 
         // 2) 저장한 파일을 다시 읽어 RenderFrame 으로 모아 그림. 저장·로드·수집 경로를 함께 검사함.
         auto loaded = SceneIO::Load(output, models);
@@ -41,7 +41,7 @@ int RunRenderTestScene(const std::filesystem::path& scenePath)
                 "render test renderer");
 
         const float aspect = float(window.Width()) / window.Height();
-        auto frame = CollectRenderFrame(loaded.scene, loaded.camera, loaded.cameraData, aspect, 0);
+        auto frame = CollectRenderFrame(loaded.scene, aspect, 0);
         Require(!frame.items.empty(), "render test scene has no draw items");
 
         // 조명 방향이 객체 회전을 거쳐도 원본 JSON 의 방향과 같아야 함

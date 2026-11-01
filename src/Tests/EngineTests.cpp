@@ -324,8 +324,8 @@ void TestScene()
     Require(scene.Objects().empty(), "clear during update is safe");
     auto& cameraObject = scene.Create("camera");
     cameraObject.transform.position = {0, 0, -5};
-    Camera camera;
-    DirectX::XMStoreFloat4x4(&world, camera.View(scene, cameraObject.Id()));
+    CameraComponent camera;
+    DirectX::XMStoreFloat4x4(&world, CameraView(scene, cameraObject.Id()));
     Require(Near(world._43, 5), "camera inverse world");
     bool rejected = false;
 
@@ -642,8 +642,7 @@ void TestLifecycle()
 void TestRenderInput()
 {
     Scene scene;
-    Camera camera;
-    const auto cameraId = scene.Create("camera").Id();
+    scene.Create("camera").Add<CameraComponent>();
     auto mesh = MakeCube();
     std::weak_ptr<const MeshData> weak = mesh;
     const auto first = scene.Create("first").Id();
@@ -651,7 +650,7 @@ void TestRenderInput()
     const auto second = scene.Create("second").Id();
     scene.Find(second)->Add<MeshComponent>(mesh);
     scene.Find(second)->transform.position.x = 4;
-    auto frame = CollectRenderFrame(scene, cameraId, camera, 1, 0);
+    auto frame = CollectRenderFrame(scene, 1, 0);
     Require(frame.items.size() == 2 && Near(frame.items[1].world._41, 4),
             "render world transforms");
     scene.Destroy(first);
@@ -914,7 +913,7 @@ void TestReflection()
 
     Scene scene;
     ModelCache cache;
-    const auto camera = scene.Create("camera").Id();
+    scene.Create("camera").Add<CameraComponent>();
     auto& object = scene.Create("player");
     auto& probe = dynamic_cast<ReflectedProbe&>(registry.Add(object, "test-probe"));
     const auto* type = registry.Find(probe);
@@ -939,7 +938,7 @@ void TestReflection()
     Require(rejects([&] { type->properties[0].Set(probe, -1.f); }) && Near(probe.strength, 7.5),
             "invalid property edit is non-mutating");
     Require(rejects([&] { type->properties[0].Set(probe, true); }), "wrong property type rejected");
-    auto encoded = SceneIO::Encode(scene, camera, object.Id());
+    auto encoded = SceneIO::Encode(scene, object.Id());
     auto loaded = SceneIO::Decode(encoded, cache);
     auto* restored = loaded.scene.Find(loaded.player)->Get<ReflectedProbe>();
     Require(restored && Near(restored->strength, 7.5) && restored->count == 8 &&
@@ -967,7 +966,7 @@ void TestReflection()
     fields["repeat"] = "true";
     Require(rejects([&] { SceneIO::Decode(file.dump(), cache); }), "wrong bool type rejected");
     probe.strength = std::numeric_limits<float>::infinity();
-    Require(rejects([&] { SceneIO::Encode(scene, camera, object.Id()); }),
+    Require(rejects([&] { SceneIO::Encode(scene, object.Id()); }),
             "nonfinite save rejected");
     object.Remove(move);
     auto& replacement = object.Add<MoveComponent>();
@@ -999,7 +998,7 @@ void TestCommonComponents()
     Scene scene;
     ModelCache cache;
     auto& registry = ComponentTypes();
-    const auto camera = scene.Create("camera").Id();
+    scene.Create("camera").Add<CameraComponent>();
     auto& object = scene.Create("common components");
     auto& collider = dynamic_cast<Collider&>(registry.Add(object, "collider"));
     auto& mesh = dynamic_cast<MeshComponent&>(registry.Add(object, "cube"));
@@ -1020,14 +1019,14 @@ void TestCommonComponents()
             "enum edit rejects unknown shape");
     for (const auto* key : {"cube", "collider", "parameters"})
         Require(rejects([&] { registry.Add(object, key); }), "common duplicate rejected");
-    const auto encoded = SceneIO::Encode(scene, camera, object.Id());
+    const auto encoded = SceneIO::Encode(scene, object.Id());
     auto file = nlohmann::json::parse(encoded);
     auto& saved = file["objects"][1]["components"][0];
     Require(saved["shape"] == "box" && saved["mask"] == 4294967295ULL && !saved.contains("attack"),
             "legacy collider keys and full unsigned mask preserved without runtime attack");
     auto loaded = SceneIO::Decode(encoded, cache);
     auto* restored = loaded.scene.Find(loaded.player);
-    Require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player) == encoded &&
+    Require(SceneIO::Encode(loaded.scene, loaded.player) == encoded &&
                 restored->Get<Collider>()->attack == 0 && !restored->Get<Collider>()->Enabled(),
             "all common components roundtrip canonically");
     for (const auto invalidMask :
@@ -1055,9 +1054,9 @@ void TestCommonComponents()
             "model factory attaches loaded resource to existing object");
     Require(rejects([&] { registry.Add(object, "model", &cache, path); }),
             "duplicate model rejected");
-    auto modelScene = SceneIO::Encode(scene, camera, object.Id());
+    auto modelScene = SceneIO::Encode(scene, object.Id());
     loaded = SceneIO::Decode(modelScene, cache);
-    Require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player) == modelScene,
+    Require(SceneIO::Encode(loaded.scene, loaded.player) == modelScene,
             "model resource survives scene roundtrip");
     object.Remove(*object.Get<ModelComponent>());
     object.Remove(collider);
@@ -1082,24 +1081,25 @@ void TestSceneIO()
     object->Add<Parameters>().values["duration"] = {3, .1, 10};
     scene.SetParent(player, camera);
     const std::filesystem::path path = "logs/test-scene.json";
-    SceneIO::Save(scene, camera, player, path);
+    SceneIO::Save(scene, player, path);
     auto loaded = SceneIO::Load(path, cache);
     Require(loaded.scene.Objects().size() == 2 && loaded.player != player,
             "load remaps object handles");
-    Require(loaded.scene.Find(loaded.player)->Parent() == loaded.camera, "load restores hierarchy");
+    Require(loaded.scene.Find(loaded.scene.Find(loaded.player)->Parent())->Name() == "camera",
+            "load restores hierarchy");
     Require(Near(loaded.scene.Find(loaded.player)->transform.position.z, 3),
             "load restores transform");
     Require(
         Near(loaded.scene.Find(loaded.player)->Get<Parameters>()->values.at("duration").value, 3),
         "load restores parameters");
-    SceneIO::Save(loaded.scene, loaded.camera, loaded.player,
+    SceneIO::Save(loaded.scene, loaded.player,
                   path); // Atomic replacement of an existing file.
     loaded.scene.Find(loaded.player)->Get<Parameters>()->values["duration"].value = -1;
     bool invalidParameter = false;
 
     try
     {
-        SceneIO::Save(loaded.scene, loaded.camera, loaded.player, path);
+        SceneIO::Save(loaded.scene, loaded.player, path);
     }
     catch (const std::exception&)
     {
@@ -1164,7 +1164,7 @@ void TestEditorHistory()
 {
     Scene scene;
     ModelCache cache;
-    const auto camera = scene.Create("camera").Id();
+    scene.Create("camera").Add<CameraComponent>();
     const auto player = scene.Create("player").Id();
     const auto parent = scene.Create("parent").Id();
     scene.Find(parent)->transform.position = {4, 0, 0};
@@ -1174,14 +1174,14 @@ void TestEditorHistory()
     child.transform.position = {0, 2, 3};
     scene.SetParent(childId, parent);
     EditHistory history;
-    const auto initial = SceneIO::Encode(scene, camera, player);
+    const auto initial = SceneIO::Encode(scene, player);
     history.Reset(initial);
     auto decoded = SceneIO::Decode(initial, cache);
-    Require(SceneIO::Encode(decoded.scene, decoded.camera, decoded.player) == initial,
+    Require(SceneIO::Encode(decoded.scene, decoded.player) == initial,
             "history canonical form survives handle remapping");
     scene.Destroy(parent);
     scene.Flush();
-    history.Commit(SceneIO::Encode(scene, camera, player));
+    history.Commit(SceneIO::Encode(scene, player));
     Require(history.Dirty() && history.CanUndo(), "deletion records an edit");
     decoded = SceneIO::Decode(history.Target(-1), cache);
     history.Accept(-1);
@@ -1198,7 +1198,7 @@ void TestEditorHistory()
                               DirectX::XMVectorSet(0, 0, 1, 0)),
             "viewport ray misses empty space");
     decoded.scene.Find(restoredChild)->transform.position.z = 9;
-    history.Commit(SceneIO::Encode(decoded.scene, decoded.camera, decoded.player));
+    history.Commit(SceneIO::Encode(decoded.scene, decoded.player));
     Require(!history.CanRedo(), "edit after undo discards the old redo branch");
     history.MarkSaved();
     Require(!history.Dirty(), "save marks history position");
@@ -1327,6 +1327,10 @@ void TestRenderSceneComponents()
     using namespace DirectX;
     Scene scene;
     auto& camera = scene.Create("Camera");
+    camera.transform.position = {0, 2, -6};
+    auto& cameraComponent = camera.Add<CameraComponent>();
+    cameraComponent.verticalFovDegrees = 60;
+    cameraComponent.farPlane = 900;
     auto& sphere = scene.Create("Sphere");
     auto& mesh = sphere.Add<MeshComponent>(MakeSphere(.8f, 48, 24));
     mesh.tint = {1, .766f, .336f, 1};
@@ -1346,13 +1350,20 @@ void TestRenderSceneComponents()
     environment.bloomIntensity = 1.5f;
     environment.greyscale = .25f;
 
-    const auto text = SceneIO::Encode(scene, camera.Id(), 0);
+    const auto text = SceneIO::Encode(scene, 0);
     ModelCache cache;
     auto loaded = SceneIO::Decode(text, cache);
-    Require(SceneIO::Encode(loaded.scene, loaded.camera, 0, loaded.cameraData) == text,
+    Require(SceneIO::Encode(loaded.scene, 0) == text,
             "sphere/light/environment scene round trip");
 
-    const auto frame = CollectRenderFrame(loaded.scene, loaded.camera, loaded.cameraData, 1, 0);
+    const auto frame = CollectRenderFrame(loaded.scene, 1, 0);
+    XMFLOAT4X4 expectedProjection;
+    XMStoreFloat4x4(&expectedProjection,
+                    XMMatrixPerspectiveFovLH(XMConvertToRadians(60), 1, .1f, 900));
+    Require(Near(frame.projection._11, expectedProjection._11) &&
+                Near(frame.projection._33, expectedProjection._33) && Near(frame.view._42, -2) &&
+                Near(frame.view._43, 6),
+            "camera component settings and transform reach the frame");
     Require(frame.items.size() == 1 && frame.items[0].material, "sphere draw item");
     Require(frame.items[0].material->metallic == 1 && Near(frame.items[0].material->roughness, .2) &&
                 Near(frame.items[0].material->baseColor.y, .766),
@@ -1379,8 +1390,8 @@ void TestRenderSceneComponents()
 
     // 조명·환경이 없는 씬은 기본값을 유지
     Scene plain;
-    auto& view = plain.Create("Camera");
-    const auto defaults = CollectRenderFrame(plain, view.Id(), Camera{}, 1, 0);
+    plain.Create("Camera").Add<CameraComponent>();
+    const auto defaults = CollectRenderFrame(plain, 1, 0);
     Require(defaults.lights.size() == 1 && defaults.environment.skybox == "builtin:sky",
             "scene without light/environment keeps renderer defaults");
 }
@@ -1542,6 +1553,155 @@ void TestRenderPipeline()
 } // namespace
 
 
+// 카메라 컴포넌트: 활성 카메라 선택, 크기 무시 뷰, 리플렉션 저장, version 1 씬 변환
+void TestCameraComponent()
+{
+    using namespace DirectX;
+    auto rejects = [](auto action) {
+        try
+        {
+            action();
+        }
+        catch (const std::exception&)
+        {
+            return true;
+        }
+        return false;
+    };
+
+    Scene scene;
+    Require(!FindActiveCamera(scene), "empty scene has no camera");
+    auto& low = scene.Create("low");
+    low.transform.position = {0, 0, -5};
+    low.Add<CameraComponent>().priority = 1;
+    auto& high = scene.Create("high");
+    high.transform.position = {3, 0, 0};
+    auto& highCamera = high.Add<CameraComponent>();
+    highCamera.priority = 5;
+    auto& tie = scene.Create("tie");
+    tie.Add<CameraComponent>().priority = 5;
+    Require(FindActiveCamera(scene) == high.Id(), "highest priority wins, ties keep first object");
+    highCamera.SetEnabled(false);
+    Require(FindActiveCamera(scene) == tie.Id(), "disabled camera is skipped");
+    tie.SetEnabled(false);
+    Require(FindActiveCamera(scene) == low.Id(), "inactive camera object is skipped");
+
+    // 부모·자신의 크기는 뷰에 섞이지 않는다.
+    auto& parent = scene.Create("scaled parent");
+    parent.transform.scale = {2, 3, .5f};
+    parent.transform.position = {1, 0, 0};
+    low.transform.rotation = {.3f, .8f, 0};
+    XMFLOAT4X4 unscaled, scaled;
+    XMStoreFloat4x4(&unscaled, CameraView(scene, low.Id()));
+    low.transform.scale = {4, .25f, 2};
+    XMStoreFloat4x4(&scaled, CameraView(scene, low.Id()));
+    bool same = true;
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            same &= Near(unscaled.m[r][c], scaled.m[r][c]);
+    Require(same, "camera view ignores own scale");
+    scene.SetParent(low.Id(), parent.Id());
+    XMFLOAT4X4 view;
+    XMStoreFloat4x4(&view, CameraView(scene, low.Id()));
+    XMFLOAT4X4 world;
+    XMStoreFloat4x4(&world, scene.World(low.Id()));
+    XMFLOAT3 eye;
+    XMStoreFloat3(&eye, XMVector3Transform(XMVectorSet(world._41, world._42, world._43, 1),
+                                           XMLoadFloat4x4(&view)));
+    Require(Near(eye.x, 0) && Near(eye.y, 0) && Near(eye.z, 0), "view origin stays at camera");
+    scene.SetParent(low.Id(), 0);
+
+    // near가 far를 넘어도 투영은 유효하다.
+    CameraComponent planes;
+    planes.nearPlane = 10;
+    planes.farPlane = 5;
+    Require(!planes.PlanesValid() && !rejects([&] { planes.Projection(1.5f); }),
+            "inverted planes still project");
+    Require(rejects([&] { planes.Projection(0); }), "invalid aspect rejected");
+
+    // 리플렉션 저장과 복원
+    Scene saved;
+    auto& cameraObject = saved.Create("Main Camera");
+    cameraObject.transform.position = {0, 2, -8};
+    auto& camera = dynamic_cast<CameraComponent&>(ComponentTypes().Add(cameraObject, "camera"));
+    camera.verticalFovDegrees = 70;
+    camera.nearPlane = .5f;
+    camera.farPlane = 250;
+    camera.priority = 3;
+    ModelCache cache;
+    const auto text = SceneIO::Encode(saved, 0);
+    const auto file = nlohmann::json::parse(text);
+    Require(file["version"] == SceneIO::Version && !file.contains("camera") &&
+                !file.contains("cameraSettings") &&
+                file["objects"][0]["components"][0]["type"] == "camera" &&
+                file["objects"][0]["components"][0]["fov"] == 70,
+            "camera saves as a component in degrees");
+    auto loaded = SceneIO::Decode(text, cache);
+    const auto active = FindActiveCamera(loaded.scene);
+    const auto* restored = loaded.scene.Find(active)->Get<CameraComponent>();
+    Require(restored && Near(restored->verticalFovDegrees, 70) && Near(restored->nearPlane, .5) &&
+                Near(restored->farPlane, 250) && restored->priority == 3 &&
+                SceneIO::Encode(loaded.scene, 0) == text,
+            "camera component roundtrips canonically");
+    auto badFov = file;
+    badFov["objects"][0]["components"][0]["fov"] = 180;
+    Require(rejects([&] { SceneIO::Decode(badFov.dump(), cache); }), "out of range fov rejected");
+
+    // 카메라가 없는 씬도 저장·렌더 수집이 가능하다.
+    Scene empty;
+    const auto player = empty.Create("player").Id();
+    Require(!rejects([&] { SceneIO::Encode(empty, player); }) &&
+                !rejects([&] { CollectRenderFrame(empty, 1, 0); }),
+            "scene without camera saves and renders with default view");
+    Require(rejects([&] { CollectRenderFrame(empty, 1, 0, player); }),
+            "explicit camera object must own a CameraComponent");
+
+    // version 1: 최상위 camera 역할과 라디안 시야각을 CameraComponent로 옮긴다.
+    const auto legacy = nlohmann::json{
+        {"version", 1},
+        {"camera", 1},
+        {"player", 2},
+        {"cameraSettings", {{"fov", XM_PIDIV2}, {"near", .2}, {"far", 300}}},
+        {"objects",
+         nlohmann::json::array(
+             {{{"id", 1},
+               {"parent", 0},
+               {"name", "Old camera"},
+               {"enabled", true},
+               {"position", {0, 1, -6}},
+               {"rotation", {0, 0, 0}},
+               {"scale", {1, 1, 1}},
+               {"components", nlohmann::json::array()}},
+              {{"id", 2},
+               {"parent", 0},
+               {"name", "Old player"},
+               {"enabled", true},
+               {"position", {0, 0, 0}},
+               {"rotation", {0, 0, 0}},
+               {"scale", {1, 1, 1}},
+               {"components", nlohmann::json::array()}}})}};
+    auto migrated = SceneIO::Decode(legacy.dump(), cache);
+    const auto migratedCamera = FindActiveCamera(migrated.scene);
+    const auto* legacyCamera =
+        migratedCamera ? migrated.scene.Find(migratedCamera)->Get<CameraComponent>() : nullptr;
+    Require(legacyCamera && migrated.scene.Find(migratedCamera)->Name() == "Old camera" &&
+                Near(legacyCamera->verticalFovDegrees, 90) && Near(legacyCamera->nearPlane, .2) &&
+                Near(legacyCamera->farPlane, 300) &&
+                migrated.scene.Find(migrated.player)->Name() == "Old player",
+            "version 1 camera role migrates to a component");
+    Require(nlohmann::json::parse(SceneIO::Encode(migrated.scene, migrated.player))["version"] ==
+                SceneIO::Version,
+            "migrated scene saves as current version");
+    auto legacyBroken = legacy;
+    legacyBroken["cameraSettings"]["near"] = 400;
+    Require(rejects([&] { SceneIO::Decode(legacyBroken.dump(), cache); }),
+            "version 1 inverted planes rejected");
+    auto future = legacy;
+    future["version"] = 3;
+    Require(rejects([&] { SceneIO::Decode(future.dump(), cache); }), "unknown version rejected");
+}
+
+
 int RunEngineTests()
 {
     try
@@ -1552,6 +1712,7 @@ int RunEngineTests()
         TestScene();
         TestLifecycle();
         TestRenderInput();
+        TestCameraComponent();
         TestAnimation();
         TestModelCache();
         TestMaterialSettings();
@@ -1567,7 +1728,7 @@ int RunEngineTests()
         Log::Write(
             LogLevel::Info,
             "Engine tests PASS: input, time, scene, lifecycle, render input, animation, model cache, "
-            "collision, scene IO, transitions, events");
+            "camera, collision, scene IO, transitions, events");
         return 0;
     }
     catch (const std::exception& error)

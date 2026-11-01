@@ -3,6 +3,7 @@
 #include "Renderer/RenderComponents.h"
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 namespace nereides
 {
@@ -87,12 +88,21 @@ void CollectLighting(const Scene& scene, RenderFrame& frame)
 
 
 // Scene에서 그릴 정보를 수집해 렌더러에 전달할 RenderFrame 생성·반환 -> 해당 정보를 Application에서 렌더러에 전달
-RenderFrame CollectRenderFrame(const Scene& scene, ObjectId cameraObject, const Camera& camera,
-                               float aspect, double time)
+RenderFrame CollectRenderFrame(const Scene& scene, float aspect, double time,
+                               ObjectId cameraObject)
 {
     RenderFrame frame;
-    DirectX::XMStoreFloat4x4(&frame.view, camera.View(scene, cameraObject));
-    DirectX::XMStoreFloat4x4(&frame.projection, camera.Projection(aspect));
+    if (!cameraObject)
+        cameraObject = FindActiveCamera(scene);
+    const auto* cameraOwner = scene.Find(cameraObject);
+    const auto* camera = cameraOwner ? cameraOwner->Get<CameraComponent>() : nullptr;
+    if (cameraObject && !camera)
+        throw std::invalid_argument("Camera object has no CameraComponent");
+    // 카메라가 없으면 원점에서 +Z를 보는 기본 투영을 쓴다. 에디터는 이 값을 편집 시점으로 덮어쓴다.
+    DirectX::XMStoreFloat4x4(&frame.view, camera ? CameraView(scene, cameraObject)
+                                                 : DirectX::XMMatrixIdentity());
+    DirectX::XMStoreFloat4x4(&frame.projection,
+                             (camera ? *camera : CameraComponent{}).Projection(aspect));
 
     frame.time = time;
 

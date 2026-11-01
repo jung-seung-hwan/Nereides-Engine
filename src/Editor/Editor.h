@@ -22,9 +22,10 @@ public:
     void Message(HWND, UINT, WPARAM, LPARAM);
 
     // Returns true when live scene is replaced; callers must reset transient contacts/input.
-    bool Begin(Scene&, ObjectId& camera, ObjectId& player, Camera&, Time&, Input&, CollisionWorld&);
+    // Play 중 화면은 FindActiveCamera가 고른 게임 카메라, 없으면 편집 시점을 쓴다.
+    bool Begin(Scene&, ObjectId& player, Time&, Input&, CollisionWorld&);
     void Render();
-    void DrawDebug(const Scene&, ObjectId, const Camera&, const CollisionWorld&);
+    void DrawDebug(const Scene&, const CollisionWorld&);
     void AdvancePresentation(double dt);
 
     bool BlocksCombat() const
@@ -64,6 +65,7 @@ private:
     DirectX::XMFLOAT2 m_consoleButton{}, m_viewLogButton{}, m_splitter{};
     std::map<std::string, DirectX::XMFLOAT2> m_componentControls;
     void Focus(const Scene&, ObjectId);
+    void ApplyGameCamera(const Scene&);
     void Import(Scene&, const std::filesystem::path&, const DirectX::XMFLOAT3* position = nullptr);
     ObjectId m_selected = 0;
     int m_operation = 0;

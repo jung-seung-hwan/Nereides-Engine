@@ -23,8 +23,7 @@ wWinMain (Main.cpp)
      │    ├─ Transition                  (Presentation)
      │    └─ EditHistory, m_playSnapshot (편집 상태 문자열)
      ├─ Scene           m_scene       Object → Component 트리 (게임 세계 전체)
-     ├─ ObjectId        m_player, m_camera
-     ├─ Camera          m_cameraData  시야각·near·far
+     ├─ ObjectId        m_player
      ├─ CollisionWorld  m_collision   충돌 계산 (지난 tick의 접촉 기억)
      └─ Events          m_events      알림 대기열
 ```
@@ -42,6 +41,7 @@ Scene
          ├─ ModelComponent   (Graphics)      ← 데이터: 렌더러가 읽음
          ├─ Collider         (Collision)     ← 데이터: CollisionWorld가 읽음
          ├─ Parameters       (Data)          ← 데이터: 에디터가 수치 편집
+         ├─ CameraComponent  (Scene)         ← 데이터: 렌더 수집이 활성 카메라를 고름
          └─ Light/Environment (Graphics)    ← 데이터: 렌더러가 읽음
 ```
 
@@ -66,8 +66,8 @@ Scene
 │                                 (Editor.Message로 ImGui에도 전달) │
 ├──────────────────────────────────────────────────────────────────┤
 │ ② 에디터 / 상태 판정                                              │
-│   Editor.Begin(scene, camera, player, cameraData, time, input,    │
-│                collision)       ← 거의 모든 것을 참조로 받음      │
+│   Editor.Begin(scene, player, time, input, collision)             │
+│                                 ← 거의 모든 것을 참조로 받음      │
 │     - UI 그리기, Play/Stop, 저장/로드, Input.Capture              │
 │     - 장면이 교체되면 true → Events/Collision Reset              │
 │   ESC → time.paused 토글                                          │
@@ -91,7 +91,7 @@ Scene
 ├──────────────────────────────────────────────────────────────────┤
 │ ⑥ 렌더링                                                          │
 │   Editor.DrawDebug()            충돌 박스 같은 디버그 표시        │
-│   frame = CollectRenderFrame(scene, camera, …)  Scene → 그릴 목록 │
+│   frame = CollectRenderFrame(scene, aspect, …)  Scene → 그릴 목록 │
 │   Editor.ApplyView(frame)       에디터 카메라로 덮어쓰기          │
 │   Renderer.RenderScene(frame)   GPU로 그림                        │
 │     └ 마지막에 overlay 콜백 → Editor.Render() (ImGui 출력)        │
@@ -199,4 +199,4 @@ Scene
 - **`ResolveContacts`**: 충돌 결과를 받는 자리입니다. 지금은 트리거 Enter 로그만 남깁니다.
 - **`Events`**: 런타임 코드에서 `Publish`나 `Subscribe`를 부르는 곳이 없습니다. `Dispatch`는 매 tick 실행되지만 대기열이 늘 비어 있습니다.
 - **`Timeline`**: 테스트에서만 쓰입니다.
-- **카메라**: `m_camera` 객체에는 이동 컴포넌트가 없습니다. 위치가 고정되어 있고, Play 중이 아니면 에디터 카메라가 `ApplyView`로 덮어씁니다.
+- **카메라**: 2026-11-01부터 `CameraComponent`입니다. 예제 카메라에는 이동 컴포넌트가 없어 위치가 고정되어 있고, Play 중이 아니면 에디터 카메라가 `ApplyView`로 덮어씁니다.

@@ -88,8 +88,8 @@ private:
     mutable float m_materialMetallic = 0, m_materialRoughness = 0;
 };
 
-RenderFrame CollectRenderFrame(const Scene&, ObjectId cameraObject, const Camera&, float aspect,
-                               double time);
+// cameraObject가 0이면 FindActiveCamera로 고른다. 켜진 카메라가 없으면 기본 시점을 쓴다.
+RenderFrame CollectRenderFrame(const Scene&, float aspect, double time, ObjectId cameraObject = 0);
 
 std::shared_ptr<const MeshData> MakeCube();
 // 반지름 radius인 구. 경도 slices, 위도 stacks 분할. 바깥에서 볼 때 시계방향이 앞면.

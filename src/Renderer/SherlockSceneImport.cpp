@@ -128,11 +128,14 @@ LoadedScene ImportSherlockScene(const std::filesystem::path& path, ModelCache& m
     }
 
     // 카메라: CameraComponent 객체. 없으면 씬 파일의 camera(위치, yaw, pitch)로 객체를 만듦.
+    // 우선순위가 가장 높은 Sherlock 카메라 하나만 Nereides CameraComponent로 옮긴다.
     if (cameraObject)
     {
-        result.cameraData.verticalFov = XMConvertToRadians(cameraComponent->value("fovY", 45.f));
-        result.cameraData.nearPlane = cameraComponent->value("nearZ", .1f);
-        result.cameraData.farPlane = cameraComponent->value("farZ", 1000.f);
+        auto& camera = result.scene.Find(cameraId)->Add<CameraComponent>();
+        camera.verticalFovDegrees = cameraComponent->value("fovY", 45.f);
+        camera.nearPlane = cameraComponent->value("nearZ", .1f);
+        camera.farPlane = cameraComponent->value("farZ", 1000.f);
+        camera.priority = cameraComponent->value("priority", 0);
     }
     else
     {
@@ -140,10 +143,8 @@ LoadedScene ImportSherlockScene(const std::filesystem::path& path, ModelCache& m
         auto& object = result.scene.Create("Main Camera");
         object.transform.position = Float3(camera, "position", {0, 3, -9});
         object.transform.rotation = {camera.value("pitch", 0.f), camera.value("yaw", 0.f), 0};
-        cameraId = object.Id();
-        result.cameraData.farPlane = 1000.f;
+        object.Add<CameraComponent>().farPlane = 1000.f;
     }
-    result.camera = cameraId;
 
     int lightNumber = 0;
     for (const auto& light : ArrayAt(source, "lights"))

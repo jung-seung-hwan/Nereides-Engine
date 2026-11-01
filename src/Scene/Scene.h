@@ -263,13 +263,27 @@ private:
     std::vector<std::unique_ptr<Object>> m_objects;
 };
 
-// 카메라의 시야각·투영 범위 설정. 현재 Component 파생형은 아님
-// 위치와 회전은 별도 카메라 Object의 Transform을 사용
-struct Camera
+// 게임 카메라. 위치·회전은 소유 객체의 월드 변환을 쓰고 크기는 무시한다.
+// 켜진 CameraComponent 중 priority가 가장 높은 것이 화면에 쓰인다(같으면 먼저 만든 객체).
+// 시야각은 에디터·Sherlock 씬과 같은 도(degree) 단위로 저장한다.
+class CameraComponent final : public Component
 {
-    float verticalFov = DirectX::XM_PIDIV4;
+public:
+    float verticalFovDegrees = 45.f;
     float nearPlane = 0.1f, farPlane = 500.f;
+    int priority = 0;
+
+    // farPlane이 nearPlane 이하이면 투영에서는 near보다 조금 먼 값으로 보정한다.
+    bool PlanesValid() const noexcept
+    {
+        return nearPlane > 0 && farPlane > nearPlane;
+    }
     DirectX::XMMATRIX Projection(float aspect) const;
-    DirectX::XMMATRIX View(const Scene& scene, ObjectId object) const;
 };
+
+// 카메라 객체의 위치와 앞(+Z)·위(+Y) 방향으로 뷰 행렬을 만든다. 부모를 포함한 크기는 무시한다.
+DirectX::XMMATRIX CameraView(const Scene& scene, ObjectId cameraObject);
+
+// 계층상 활성 객체의 켜진 CameraComponent 중 화면에 쓸 객체. 없으면 0.
+ObjectId FindActiveCamera(const Scene& scene);
 } // namespace nereides

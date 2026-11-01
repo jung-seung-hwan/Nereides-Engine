@@ -40,11 +40,11 @@ ComponentTypes().Register(DescribeComponent<MyComponent>("my-component", "My Com
 
 현재 공통 속성은 `float`, `int`, `unsigned`, `bool`, `DirectX::XMFLOAT3`와 이름을 명시한 열거형을 지원한다. `EnumProperty`는 저장 키와 enum 값을 연결하며 JSON에는 안정적인 문자열 키를 기록한다. unsigned는 0~UINT_MAX 범위의 정수만 허용한다. 등록된 속성 모두 편집·저장 대상이며 포인터·구독 ID·공격 진행 상태는 등록하지 않는다. 에디터 Add Component 목록·Inspector와 SceneIO가 같은 메타데이터를 사용한다. 숫자 범위·유한성·자료형을 검사하며, 새 필드가 과거 파일에 없으면 등록 기본값을 적용한다. 타입/필드 저장 키를 바꿀 때는 별도 파일 마이그레이션이 필요하다.
 
-기본 등록은 MoveComponent, Collider, MeshComponent(내장 Cube), ModelComponent, Parameters다. 모두 공통 추가 목록·활성 전환·삭제·Undo/Redo에 연결된다. Collider는 shape/offset/extents/radius/layer/mask/trigger를 공통 속성으로 편집·저장하며 attack은 런타임 값이므로 제외한다. 기존 version 1 JSON 키와 sphere/box 값은 유지한다. Mesh의 색상, Parameters의 동적 이름·값·최소/최대는 전용 편집기를 공통 컴포넌트 패널 내부에서 사용한다. Parameters는 항목 추가·삭제와 중복 이름 검사를 제공한다.
+기본 등록은 MoveComponent, Collider, MeshComponent(내장 Cube), ModelComponent, Parameters, CameraComponent, LightComponent, EnvironmentComponent다. 모두 공통 추가 목록·활성 전환·삭제·Undo/Redo에 연결된다. Collider는 shape/offset/extents/radius/layer/mask/trigger를 공통 속성으로 편집·저장하며 attack은 런타임 값이므로 제외한다. 기존 version 1 JSON 키와 sphere/box 값은 유지한다. Mesh의 색상, Parameters의 동적 이름·값·최소/최대는 전용 편집기를 공통 컴포넌트 패널 내부에서 사용한다. Parameters는 항목 추가·삭제와 중복 이름 검사를 제공한다.
 
 리소스가 필요한 타입은 `ComponentType::createFromFile`에 생성 함수를 등록한다. 에디터는 Model 선택 시 파일 선택창을 열고 `ComponentTypes().Add(object, "model", &cache, path)`로 파일을 로드한 뒤 기존 객체에 부착한다. 취소나 실패는 객체를 변경하지 않는다. 파일 기반 팩터리는 빈 모델 샘플을 생성하지 않으며 현재 공통 Property 목록 없이 전용 설정 UI를 사용한다. cube/model/parameters의 SceneIO 전용 직렬화는 유지한다. 모델은 Assets에서 새 객체로 배치하는 기존 기능도 유지한다.
 
-문자열 일반 편집·객체 참조·범용 리소스 속성·배열·중첩 속성과 C++ 소스 편집/핫리로드는 미구현이다. Camera는 컴포넌트가 아니므로 추가 목록에 넣지 않는다.
+문자열 일반 편집·객체 참조·범용 리소스 속성·배열·중첩 속성과 C++ 소스 편집/핫리로드는 미구현이다.
 
 ## 프레임 갱신과 고정 갱신
 
@@ -86,9 +86,17 @@ RenderFrame은 CPU 메시 공유 참조·월드/뷰/투영·기본색·스키닝
 
 ## 저장과 재시작
 
-에디터는 09~10단계부터 Edit/Play를 분리한다. EditHistory는 SceneIO::Encode/Decode의 메모리 스냅샷을 사용하며 Undo/Redo/Stop 때 새 Scene으로 교체한다. 교체 후 카메라·플레이어 역할 ID와 선택 참조를 다시 얻고 충돌·입력을 초기화한다. 저장 ID는 파일 안의 정규화된 번호이며 런타임 ID를 영구 식별자로 취급하지 않는다. 새 콘텐츠 컴포넌트를 연결할 때에도 직렬화 등록이 필요하다. 등록하지 않은 컴포넌트를 조용히 누락시키지 않고 오류로 보고한다.
+에디터는 09~10단계부터 Edit/Play를 분리한다. EditHistory는 SceneIO::Encode/Decode의 메모리 스냅샷을 사용하며 Undo/Redo/Stop 때 새 Scene으로 교체한다. 교체 후 플레이어 역할 ID와 선택 참조를 다시 얻고 충돌·입력을 초기화한다. 저장 ID는 파일 안의 정규화된 번호이며 런타임 ID를 영구 식별자로 취급하지 않는다. 새 콘텐츠 컴포넌트를 연결할 때에도 직렬화 등록이 필요하다. 등록하지 않은 컴포넌트를 조용히 누락시키지 않고 오류로 보고한다.
 
 편집 카메라는 Scene 객체가 아니며 저장되지 않는다. 에디터가 RenderFrame의 view/projection을 편집 뷰포트에 맞게 바꾼다. Play에서는 게임 카메라를 쓰고 Stop은 실행 직전 편집 상태를 복원한다. Scene 렌더 타깃의 크기는 창의 백버퍼와 별개다.
+
+## 게임 카메라
+
+2026-11-01부터 게임 카메라는 `CameraComponent`다. 시야각(도), near, far, priority를 공통 속성으로 편집·저장하며 Inspector의 Add Component에서 붙인다. 위치와 회전은 소유 객체의 월드 변환을 쓰고, 자신과 부모의 크기는 뷰 행렬에 넣지 않는다(`CameraView`). 렌더 수집은 계층상 활성 객체의 켜진 카메라 중 priority가 가장 높은 것을 고르며 같으면 먼저 만든 객체를 쓴다(`FindActiveCamera`). 켜진 카메라가 없으면 에디터 Play는 편집 시점을 유지하고, 에디터 없는 실행은 원점에서 +Z를 보는 기본 시점을 쓰며 경고를 한 번 남긴다. far가 near 이하이면 투영만 near보다 조금 먼 값으로 보정하고 Inspector에 경고를 표시한다.
+
+추적 카메라는 카메라 객체에 Late 단계 행동 컴포넌트를 붙여 Transform을 움직인다. 구간 연출 카메라는 priority가 높은 카메라를 켜고 끄는 방식으로 전환한다. 카메라 객체는 삭제할 수 있으며 역할 보호 대상이 아니다.
+
+씬 파일은 version 2부터 최상위 `camera`·`cameraSettings`를 쓰지 않는다. version 1 파일은 로드할 때 역할 객체에 CameraComponent를 붙여 변환하고(시야각 라디안 → 도), 다시 저장하면 version 2가 된다. version 2 파일은 이전 실행 파일에서 'Unsupported scene version'으로 거부된다.
 
 SceneIO는 배치·구성만 저장한다. 새 콘텐츠 컴포넌트는 지원하는 설정값을 ComponentRegistry에 등록하면 공통 경로로 저장된다. 리소스·동적 구조처럼 공통 속성이 지원하지 않는 데이터는 전용 직렬화 또는 별도 콘텐츠 설정 파일이 필요하다. Parameters의 최소/최대 범위는 콘텐츠에서 정의하고 Inspector는 그 범위를 따른다. 현재 전투 HP·Stagger·입력 예약을 씬 저장에 포함하지 않는다.
 

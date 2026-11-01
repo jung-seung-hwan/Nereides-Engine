@@ -187,19 +187,19 @@ int RunEditorWorkflowTest()
         Scene scene;
         ObjectId cameraId = scene.Create("camera").Id(), player = scene.Create("player").Id();
         scene.Find(cameraId)->transform.position = {0, 1, -6};
+        scene.Find(cameraId)->Add<CameraComponent>();
         scene.Find(player)->transform.position = {0, 1, 0};
         scene.Find(player)->Add<MeshComponent>(MakeCube());
-        Camera camera;
         Input input;
         Time time;
         CollisionWorld collision;
         auto frame = [&] {
-            editor.Begin(scene, cameraId, player, camera, time, input, collision);
+            editor.Begin(scene, player, time, input, collision);
             time.Advance(1. / 60);
             if (editor.Playing())
                 scene.FixedUpdate({input, time});
-            editor.DrawDebug(scene, cameraId, camera, collision);
-            auto render = CollectRenderFrame(scene, cameraId, camera, 1280.f / 720, 0);
+            editor.DrawDebug(scene, collision);
+            auto render = CollectRenderFrame(scene, 1280.f / 720, 0);
             editor.ApplyView(render);
             require(renderer.RenderScene(render), "workflow render");
         };
@@ -234,7 +234,7 @@ int RunEditorWorkflowTest()
         // Exercise the actual widgets at the fixed 1280x720 regression layout.
         click(35, 106);
         require(scene.Objects().size() == 3, "UI add cube");
-        const auto cubeState = SceneIO::Encode(scene, cameraId, player, camera);
+        const auto cubeState = SceneIO::Encode(scene, player);
         const auto cube = EditorTestAccess::Selection(editor);
         require(scene.Find(cube) && cube != player && cube != cameraId,
                 "UI selects newly placed cube");
@@ -249,17 +249,17 @@ int RunEditorWorkflowTest()
         require(std::abs(scene.Find(cube)->transform.position.z - 4.25f) < .001f,
                 "UI edits Z coordinate");
         key(ImGuiKey_Escape);
-        const auto moved = SceneIO::Encode(scene, cameraId, player, camera);
+        const auto moved = SceneIO::Encode(scene, player);
         shortcut(ImGuiKey_Z);
-        require(SceneIO::Encode(scene, cameraId, player, camera) == cubeState,
+        require(SceneIO::Encode(scene, player) == cubeState,
                 "UI Ctrl Z restores transform");
         shortcut(ImGuiKey_Y);
-        require(SceneIO::Encode(scene, cameraId, player, camera) == moved,
+        require(SceneIO::Encode(scene, player) == moved,
                 "UI Ctrl Y restores edit");
         click(92, 106);
         require(scene.Objects().size() == 2, "UI delete");
         shortcut(ImGuiKey_Z);
-        require(SceneIO::Encode(scene, cameraId, player, camera) == moved, "UI undo deletion");
+        require(SceneIO::Encode(scene, player) == moved, "UI undo deletion");
         // Import through the asset list, including a Unicode source path.
         const auto assetPoint = EditorTestAccess::AssetRow(editor, modelPath);
         click(assetPoint.x, assetPoint.y);
@@ -269,10 +269,10 @@ int RunEditorWorkflowTest()
         const auto selected = EditorTestAccess::Selection(editor);
         require(scene.Find(selected)->Get<ModelComponent>() != nullptr,
                 "UI imported model selected");
-        const auto imported = SceneIO::Encode(scene, cameraId, player, camera);
+        const auto imported = SceneIO::Encode(scene, player);
         ModelCache cache;
         auto loaded = SceneIO::Decode(imported, cache);
-        require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player, loaded.cameraData) ==
+        require(SceneIO::Encode(loaded.scene, loaded.player) ==
                     imported,
                 "Unicode model path survives scene round trip");
         // Drag the same asset into the Scene, then undo the new placement.
@@ -293,7 +293,7 @@ int RunEditorWorkflowTest()
                     .001f,
                 "asset drop places model on ground");
         shortcut(ImGuiKey_Z);
-        require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
+        require(SceneIO::Encode(scene, player) == imported,
                 "undo drag-drop placement");
         io.AddMousePosEvent(600, 350);
         frame();
@@ -315,12 +315,12 @@ int RunEditorWorkflowTest()
         frame();
         io.AddMouseButtonEvent(2, false);
         frame();
-        require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
+        require(SceneIO::Encode(scene, player) == imported,
                 "editor orbit and pan preserve authored camera and transforms");
         shortcut(ImGuiKey_S);
         require(!EditorTestAccess::Dirty(editor), "UI save clears dirty state");
         loaded = SceneIO::Load("logs/editor-workflow-scene.json", cache);
-        require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player, loaded.cameraData) ==
+        require(SceneIO::Encode(loaded.scene, loaded.player) ==
                     imported,
                 "saved authored scene matches imported scene");
         click(271, 42);
@@ -330,7 +330,7 @@ int RunEditorWorkflowTest()
         frame();
         click(300, 42);
         require(!editor.Playing() && !scene.Playing(), "UI stop restores non-playing scene");
-        require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
+        require(SceneIO::Encode(scene, player) == imported,
                 "Stop restores authored state after runtime changes");
         require(starts == 1 && destroys == 1, "runtime component starts and tears down on UI stop");
         click(271, 42);
@@ -340,7 +340,7 @@ int RunEditorWorkflowTest()
         click(300, 42);
         require(!editor.Playing() && starts == 2 && destroys == 2,
                 "each Play session owns a fresh lifecycle");
-        require(SceneIO::Encode(scene, cameraId, player, camera) == imported,
+        require(SceneIO::Encode(scene, player) == imported,
                 "repeated Stop preserves authored snapshot");
         auto clickPoint = [&](DirectX::XMFLOAT2 p) { click(p.x, p.y); };
 
@@ -391,13 +391,13 @@ int RunEditorWorkflowTest()
         clickPoint(folderPoint);
         clickPoint(folderPoint);
         clickPoint(EditorTestAccess::AssetRow(editor, nested));
-        const auto beforeFailure = SceneIO::Encode(scene, cameraId, player, camera);
+        const auto beforeFailure = SceneIO::Encode(scene, player);
         clickPoint(EditorTestAccess::PlaceButton(editor));
         frame();
         const auto failedId = EditorTestAccess::ErrorLog(editor);
         require(failedId && !EditorTestAccess::ConsoleVisible(editor),
                 "import failure badges without stealing focus");
-        require(SceneIO::Encode(scene, cameraId, player, camera) == beforeFailure,
+        require(SceneIO::Encode(scene, player) == beforeFailure,
                 "failed import preserves scene");
         clickPoint(EditorTestAccess::ViewLogButton(editor));
         frame();
@@ -452,10 +452,10 @@ int RunEditorWorkflowTest()
                 "UI edits reflected float");
         clickPoint(EditorTestAccess::ComponentControl(editor, "enabled:move"));
         require(!scene.Find(player)->Get<MoveComponent>()->Enabled(), "UI component enabled");
-        const auto reflected = SceneIO::Encode(scene, cameraId, player, camera);
+        const auto reflected = SceneIO::Encode(scene, player);
         shortcut(ImGuiKey_S);
         loaded = SceneIO::Load("logs/editor-workflow-scene.json", cache);
-        require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player, loaded.cameraData) ==
+        require(SceneIO::Encode(loaded.scene, loaded.player) ==
                     reflected,
                 "UI saves registered component properties");
         renderer.RequestCapture("captures/editor-reflection.bmp");
@@ -463,7 +463,7 @@ int RunEditorWorkflowTest()
         clickPoint(EditorTestAccess::ComponentControl(editor, "remove:move"));
         require(!scene.Find(player)->Get<MoveComponent>(), "UI removes registered component");
         shortcut(ImGuiKey_Z);
-        require(SceneIO::Encode(scene, cameraId, player, camera) == reflected,
+        require(SceneIO::Encode(scene, player) == reflected,
                 "UI undo restores registered component");
         shortcut(ImGuiKey_Y);
         require(!scene.Find(player)->Get<MoveComponent>(), "UI redo removes registered component");
@@ -521,13 +521,13 @@ int RunEditorWorkflowTest()
         key(ImGuiKey_Enter);
         key(ImGuiKey_Escape);
         require(scene.Find(player)->Get<Collider>()->mask == 0x80000000u, "UI unsigned high bit");
-        const auto withCollider = SceneIO::Encode(scene, cameraId, player, camera);
+        const auto withCollider = SceneIO::Encode(scene, player);
         renderer.RequestCapture("captures/editor-common-components.bmp");
         frame();
         clickPoint(reveal("remove:collider"));
         require(!scene.Find(player)->Get<Collider>(), "UI removes collider");
         shortcut(ImGuiKey_Z);
-        require(SceneIO::Encode(scene, cameraId, player, camera) == withCollider,
+        require(SceneIO::Encode(scene, player) == withCollider,
                 "UI undo restores collider settings");
         shortcut(ImGuiKey_Y);
         require(!scene.Find(player)->Get<Collider>(), "UI redo removes collider");
@@ -539,10 +539,10 @@ int RunEditorWorkflowTest()
         clickPoint(reveal("parameter:add"));
         require(scene.Find(player)->Get<Parameters>()->values.size() == 1,
                 "duplicate parameter preserves existing value");
-        const auto withParameters = SceneIO::Encode(scene, cameraId, player, camera);
+        const auto withParameters = SceneIO::Encode(scene, player);
         shortcut(ImGuiKey_S);
         loaded = SceneIO::Load("logs/editor-workflow-scene.json", cache);
-        require(SceneIO::Encode(loaded.scene, loaded.camera, loaded.player, loaded.cameraData) ==
+        require(SceneIO::Encode(loaded.scene, loaded.player) ==
                     withParameters,
                 "UI saves new parameters component");
         clickPoint(reveal("remove:parameters"));

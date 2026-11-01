@@ -369,28 +369,57 @@ XMMATRIX Scene::World(ObjectId id) const
 
 
 // 원근 표현
-XMMATRIX Camera::Projection(float aspect) const
+XMMATRIX CameraComponent::Projection(float aspect) const
 {
-    if (!std::isfinite(aspect) || aspect <= 0 || !std::isfinite(verticalFov) || verticalFov <= 0 ||
-        verticalFov >= XM_PI || !std::isfinite(nearPlane) || !std::isfinite(farPlane) ||
-        nearPlane <= 0 || farPlane <= nearPlane)
+    if (!std::isfinite(aspect) || aspect <= 0 || !std::isfinite(verticalFovDegrees) ||
+        verticalFovDegrees <= 0 || verticalFovDegrees >= 180 || !std::isfinite(nearPlane) ||
+        !std::isfinite(farPlane) || nearPlane <= 0)
         throw std::invalid_argument("Invalid camera projection");
 
-    return XMMatrixPerspectiveFovLH(verticalFov, aspect, nearPlane, farPlane);
+    // 에디터에서 near를 끌어 far를 넘겨도 화면이 깨지지 않게 한다. 저장값은 그대로 둔다.
+    const float farValue = PlanesValid() ? farPlane : nearPlane * 1.001f + 0.001f;
+    return XMMatrixPerspectiveFovLH(XMConvertToRadians(verticalFovDegrees), aspect, nearPlane,
+                                    farValue);
 }
 
 
 // 카메라 뷰 행렬 계산
-XMMATRIX Camera::View(const Scene& scene, ObjectId object) const
+XMMATRIX CameraView(const Scene& scene, ObjectId object)
 {
     if (!scene.Find(object))
         throw std::invalid_argument("Camera object is missing");
 
+    // 행 벡터 규약: r[1]은 월드 위쪽 축, r[2]는 앞쪽 축, r[3]은 위치. 크기를 빼고 방향만 쓴다.
     const auto world = scene.World(object);
-    const float determinant = XMVectorGetX(XMMatrixDeterminant(world));
-    if (!std::isfinite(determinant) || std::abs(determinant) < 0.000001f)
+    const auto up = world.r[1], forward = world.r[2];
+    const float upLength = XMVectorGetX(XMVector3Length(up)),
+                forwardLength = XMVectorGetX(XMVector3Length(forward));
+    if (!std::isfinite(upLength) || !std::isfinite(forwardLength) || upLength < 1e-6f ||
+        forwardLength < 1e-6f ||
+        XMVectorGetX(XMVector3Length(XMVector3Cross(up / upLength, forward / forwardLength))) <
+            1e-4f ||
+        XMVector3IsNaN(world.r[3]) || XMVector3IsInfinite(world.r[3]))
         throw std::invalid_argument("Camera transform is singular");
 
-    return XMMatrixInverse(nullptr, world);
+    return XMMatrixLookToLH(world.r[3], forward / forwardLength, up / upLength);
+}
+
+
+ObjectId FindActiveCamera(const Scene& scene)
+{
+    ObjectId best = 0;
+    int bestPriority = 0;
+    for (auto id : scene.Objects())
+    {
+        if (!scene.Active(id))
+            continue;
+        const auto* camera = scene.Find(id)->Get<CameraComponent>();
+        if (camera && camera->Enabled() && (!best || camera->priority > bestPriority))
+        {
+            best = id;
+            bestPriority = camera->priority;
+        }
+    }
+    return best;
 }
 } // namespace nereides
